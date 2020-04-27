@@ -12,3 +12,9 @@ go_binary(
     embed = [":go_default_library"],
     visibility = ["//visibility:public"],
 )
+
+go_binary(
+    name = "fail_test",
+    embed = [":fail_test"],
+    visibility = ["//visibility:public"],
+)
