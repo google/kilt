@@ -5,6 +5,7 @@ go_library(
     srcs = ["main.go"],
     importpath = "github.com/google/kilt/cmd/kilt",
     visibility = ["//visibility:private"],
+    deps = ["//pkg/cmd/kilt:go_default_library"],
 )
 
 go_binary(

@@ -14,13 +14,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package main provides the main entry point for kilt.
-package main
+// Package kilt initialize subcommands for kilt.
+package kilt
 
 import (
-	"github.com/google/kilt/pkg/cmd/kilt"
+	"log"
 )
 
-func main() {
-	kilt.Execute()
+// Execute is the entry point into subcommand processing.
+func Execute() {
+	log.Printf("Placeholder")
 }
