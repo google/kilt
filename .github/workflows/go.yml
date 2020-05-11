@@ -22,12 +22,20 @@ jobs:
     - name: Check out code into the Go module directory
       uses: actions/checkout@v2
 
+    - name: Fetch libgit2 and dependencies
+      run: |
+        echo "deb http://archive.ubuntu.com/ubuntu focal main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list
+        sudo apt-get update
+        sudo apt-get install libgit2-28 libgit2-dev
+
     - name: Get dependencies
       run: |
         go get -v -t -d ./...
 
     - name: Build
-      run: go build -v ./...
+      run: |
+        go build -v ./...
 
     - name: Test
-      run: go test -v ./...
+      run: |
+        go test -v ./...

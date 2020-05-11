@@ -14,24 +14,32 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package kilt initialize subcommands for kilt.
-package kilt
+package patchset
 
 import (
-	"log"
+	"testing"
 
-	"github.com/spf13/cobra"
+	"github.com/google/go-cmp/cmp"
 )
 
-var rootCmd = &cobra.Command{
-	Use:   "kilt",
-	Short: "kilt is a patchset management tool",
-	Long:  "kilt is a tool for managing patches and patchsets.",
-}
-
-// Execute is the entry point into subcommand processing.
-func Execute() {
-	if err := rootCmd.Execute(); err != nil {
-		log.Printf("Error: %s", err)
+func TestNew(t *testing.T) {
+	tests := []struct {
+		in  string
+		out *Patchset
+	}{
+		{"patchset", &Patchset{Name: "patchset"}},
+		{"", nil},
+	}
+	for _, tt := range tests {
+		ps := New(tt.in)
+		if ps != nil {
+			if ps.UUID == nil {
+				t.Errorf("New(%v) returned nil UUID", ps)
+			}
+			ps.UUID = nil
+		}
+		if diff := cmp.Diff(ps, tt.out); diff != "" {
+			t.Errorf("New(%v) returned diff (-want +got):\n%s", ps, diff)
+		}
 	}
 }

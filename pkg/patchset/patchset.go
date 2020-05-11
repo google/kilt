@@ -14,24 +14,26 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package kilt initialize subcommands for kilt.
-package kilt
+// Package patchset provides functions for the creation and updating of patchsets.
+package patchset
 
 import (
-	"log"
-
-	"github.com/spf13/cobra"
+	"github.com/pborman/uuid"
 )
 
-var rootCmd = &cobra.Command{
-	Use:   "kilt",
-	Short: "kilt is a patchset management tool",
-	Long:  "kilt is a tool for managing patches and patchsets.",
+// Patchset represents a patchset
+type Patchset struct {
+	Name string
+	UUID uuid.UUID
 }
 
-// Execute is the entry point into subcommand processing.
-func Execute() {
-	if err := rootCmd.Execute(); err != nil {
-		log.Printf("Error: %s", err)
+// New creates a new patchset
+func New(name string) *Patchset {
+	if name == "" {
+		return nil
+	}
+	return &Patchset{
+		Name: name,
+		UUID: uuid.NewRandom(),
 	}
 }

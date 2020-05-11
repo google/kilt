@@ -14,24 +14,16 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package kilt initialize subcommands for kilt.
-package kilt
+// Package testfiles is a testhelper that abstracts the path to test files.
+package testfiles
 
 import (
-	"log"
-
-	"github.com/spf13/cobra"
+	"fmt"
+	"io/ioutil"
 )
 
-var rootCmd = &cobra.Command{
-	Use:   "kilt",
-	Short: "kilt is a patchset management tool",
-	Long:  "kilt is a tool for managing patches and patchsets.",
-}
-
-// Execute is the entry point into subcommand processing.
-func Execute() {
-	if err := rootCmd.Execute(); err != nil {
-		log.Printf("Error: %s", err)
-	}
+// TempDir creates and returns the full path to a temp test dir
+func TempDir(name string) (string, error) {
+	dir, err := ioutil.TempDir("", fmt.Sprintf("kilt-test-%s", name))
+	return dir, err
 }
