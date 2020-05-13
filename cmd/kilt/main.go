@@ -18,9 +18,12 @@ limitations under the License.
 package main
 
 import (
+	"flag"
+
 	"github.com/google/kilt/pkg/cmd/kilt"
 )
 
 func main() {
+	flag.Parse()
 	kilt.Execute()
 }

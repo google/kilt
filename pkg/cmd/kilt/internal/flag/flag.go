@@ -14,26 +14,18 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package kilt initialize subcommands for kilt.
-package kilt
+// Package flag converts golang command lines to pflags
+package flag
 
 import (
-	log "github.com/golang/glog"
-	"github.com/spf13/cobra"
+	"flag"
 
-	"github.com/google/kilt/pkg/cmd/kilt/internal/flag"
+	"github.com/spf13/pflag"
 )
 
-var rootCmd = &cobra.Command{
-	Use:   "kilt",
-	Short: "kilt is a patchset management tool",
-	Long:  "kilt is a tool for managing patches and patchsets.",
-}
-
-// Execute is the entry point into subcommand processing.
-func Execute() {
-	flag.AddFlags()
-	if err := rootCmd.Execute(); err != nil {
-		log.Exitf("Error: %s", err)
-	}
+// AddFlags adds go flags to pflags.
+func AddFlags() {
+	flag.CommandLine.VisitAll(func(f *flag.Flag) {
+		pflag.CommandLine.AddGoFlag(f)
+	})
 }

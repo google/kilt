@@ -18,13 +18,12 @@ package kilt
 
 import (
 	"errors"
-	"log"
-	"os"
+
+	log "github.com/golang/glog"
+	"github.com/spf13/cobra"
 
 	"github.com/google/kilt/pkg/patchset"
 	"github.com/google/kilt/pkg/repo"
-
-	"github.com/spf13/cobra"
 )
 
 var newCmd = &cobra.Command{
@@ -48,16 +47,14 @@ func argsNew(cmd *cobra.Command, args []string) error {
 }
 
 func runNew(cmd *cobra.Command, args []string) {
-	log.Println("Creating new patchset")
+	log.Info("Creating new patchset")
 	repo, err := repo.Open()
 	if err != nil {
-		log.Printf("Init failed: %s", err)
-		os.Exit(-1)
+		log.Exitf("Init failed: %s", err)
 	}
 	ps := patchset.New(args[0])
 	err = repo.AddPatchset(ps)
 	if err != nil {
-		log.Printf("Failed to add patchset: %s", err)
-		os.Exit(-1)
+		log.Exitf("Failed to add patchset: %s", err)
 	}
 }
