@@ -30,7 +30,7 @@ type Repo struct {
 }
 
 const (
-	metadataMessage = "kilt metadata: patchset %s\n\nPatchset-Name: %s\nPatchset-UUID: %s"
+	metadataMessage = "kilt metadata: patchset %s\n\nPatchset-Name: %s\nPatchset-UUID: %s\nPatchset-Version: %s\n"
 )
 
 // Open tries to open a repo in the current working directory
@@ -69,7 +69,7 @@ func (r *Repo) createMetadataCommit(ps *patchset.Patchset) error {
 	if err != nil {
 		return fmt.Errorf("failed to get commit tree: %w", err)
 	}
-	message := fmt.Sprintf(metadataMessage, ps.Name, ps.Name, ps.UUID)
+	message := fmt.Sprintf(metadataMessage, ps.Name(), ps.Name(), ps.UUID(), ps.Version())
 	_, err = r.git.CreateCommit(head.Branch().Reference.Name(), sig, sig, message, tree, commit)
 	if err != nil {
 		return fmt.Errorf("failed to create new commit: %w", err)

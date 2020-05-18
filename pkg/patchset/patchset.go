@@ -18,13 +18,57 @@ limitations under the License.
 package patchset
 
 import (
+	"fmt"
+
 	"github.com/pborman/uuid"
 )
 
 // Patchset represents a patchset
 type Patchset struct {
-	Name string
-	UUID uuid.UUID
+	name    string
+	uuid    uuid.UUID
+	version Version
+}
+
+// Version wraps a patchset version number
+type Version struct {
+	v int
+}
+
+// String emits a string representation of a patchset version
+func (v Version) String() string {
+	return fmt.Sprintf("%d", v.v)
+}
+
+// Predecessor returns the version number prior to the current version
+func (v Version) Predecessor() Version {
+	return Version{v.v - 1}
+}
+
+// Successor returns the version number after the current version
+func (v Version) Successor() Version {
+	return Version{v.v + 1}
+}
+
+// InitialVersion returns the base version number patchsets start from
+func InitialVersion() Version {
+	return Version{1}
+}
+
+// Cmp compares two patchset version structs and returns:
+//  -1 if v1 < v2
+//   0 if v1 == v2
+//   1 if v1 > v2
+func (v Version) Cmp(v2 Version) int {
+	switch {
+	case v.v < v2.v:
+		return -1
+	case v.v > v2.v:
+		return 1
+	case v.v == v2.v:
+		return 0
+	}
+	return 0
 }
 
 // New creates a new patchset
@@ -33,7 +77,40 @@ func New(name string) *Patchset {
 		return nil
 	}
 	return &Patchset{
-		Name: name,
-		UUID: uuid.NewRandom(),
+		name:    name,
+		uuid:    uuid.NewRandom(),
+		version: InitialVersion(),
 	}
+}
+
+// Version returns the version of the patchset
+func (p Patchset) Version() Version {
+	return p.version
+}
+
+// UUID returns the UUID of the patchset
+func (p Patchset) UUID() uuid.UUID {
+	return p.uuid
+}
+
+// Name returns the name of the patchset
+func (p Patchset) Name() string {
+	return p.name
+}
+
+// SameAs compares two patchsets and checks if they are the same, regardless of
+// version or name changes.
+func (p Patchset) SameAs(p2 *Patchset) bool {
+	return uuid.Equal(p.uuid, p2.uuid)
+}
+
+// SameVersion compares two patchsets and checks if they are the same patchset
+// and the same version of that patchset, ignoring name changes.
+func (p Patchset) SameVersion(p2 *Patchset) bool {
+	return p.SameAs(p2) && p.version.Cmp(p2.version) == 0
+}
+
+// Equal checks whether two patchsets are completely equal.
+func (p *Patchset) Equal(p2 *Patchset) bool {
+	return p.name == p2.name && p.SameVersion(p2)
 }

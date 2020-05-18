@@ -23,23 +23,23 @@ import (
 )
 
 func TestNew(t *testing.T) {
-	tests := []struct {
-		in  string
-		out *Patchset
-	}{
-		{"patchset", &Patchset{Name: "patchset"}},
-		{"", nil},
+	in := "patchset"
+	out := &Patchset{name: "patchset", version: InitialVersion()}
+	ps := New(in)
+	if ps == nil {
+		t.Errorf("New(%q) returned nil patchset", in)
 	}
-	for _, tt := range tests {
-		ps := New(tt.in)
-		if ps != nil {
-			if ps.UUID == nil {
-				t.Errorf("New(%v) returned nil UUID", ps)
-			}
-			ps.UUID = nil
-		}
-		if diff := cmp.Diff(ps, tt.out); diff != "" {
-			t.Errorf("New(%v) returned diff (-want +got):\n%s", ps, diff)
-		}
+	if ps.uuid == nil {
+		t.Errorf("New(%q) returned nil UUID", in)
+	}
+	ps.uuid = out.uuid
+	if diff := cmp.Diff(ps, out); diff != "" {
+		t.Errorf("New(%q) returned diff (-want +got):\n%s", in, diff)
+	}
+}
+
+func TestNewNil(t *testing.T) {
+	if New("") != nil {
+		t.Errorf(`New("") returned non-nil patchset`)
 	}
 }
