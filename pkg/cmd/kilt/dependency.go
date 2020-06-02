@@ -21,6 +21,10 @@ import (
 
 	log "github.com/golang/glog"
 
+	"github.com/google/kilt/pkg/dependency"
+	"github.com/google/kilt/pkg/patchset"
+	"github.com/google/kilt/pkg/repo"
+
 	"github.com/spf13/cobra"
 )
 
@@ -55,9 +59,30 @@ func argsDep(cmd *cobra.Command, args []string) error {
 }
 
 func runAdd(cmd *cobra.Command, args []string) {
-	log.Exit("add dep placeholder")
+	runDep(dependency.Graph.Add, cmd, args)
 }
 
 func runRm(cmd *cobra.Command, args []string) {
-	log.Exit("rm dep placeholder")
+	runDep(dependency.Graph.Remove, cmd, args)
+}
+
+func runDep(op func(d dependency.Graph, ps, dep *patchset.Patchset) error, cmd *cobra.Command, args []string) {
+	deps := dependency.NewStruct()
+	repo, err := repo.Open()
+	if err != nil {
+		log.Exitf("Init failed: %s", err)
+	}
+	ps, err := repo.FindPatchset(args[0])
+	if err != nil {
+		log.Exitf("Patchset %q does not exist: %v", args[0], err)
+	}
+	for _, d := range args[1:] {
+		dep, err := repo.FindPatchset(d)
+		if err != nil {
+			log.Exitf("Dependency %q does not exist: %v", args[0], err)
+		}
+		if err = op(deps, ps, dep); err != nil {
+			log.Exitf("Operation failed: %v", err)
+		}
+	}
 }

@@ -76,3 +76,9 @@ func (r *Repo) createMetadataCommit(ps *patchset.Patchset) error {
 	}
 	return nil
 }
+
+// FindPatchset iterates through the git tree and attempts to find the named patchset.
+func (r *Repo) FindPatchset(name string) (*patchset.Patchset, error) {
+	// TODO: Placeholder. Fill this in once repo walking is added.
+	return patchset.New(name), nil
+}
