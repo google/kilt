@@ -19,6 +19,7 @@ package patchset
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/pborman/uuid"
 )
@@ -55,6 +56,15 @@ func InitialVersion() Version {
 	return Version{1}
 }
 
+// ParseVersion returns a Version from a string.
+func ParseVersion(v string) (Version, error) {
+	n, err := strconv.ParseInt(v, 10, 32)
+	if err != nil {
+		return Version{}, err
+	}
+	return Version{int(n)}, nil
+}
+
 // Cmp compares two patchset version structs and returns:
 //  -1 if v1 < v2
 //   0 if v1 == v2
@@ -71,16 +81,21 @@ func (v Version) Cmp(v2 Version) int {
 	return 0
 }
 
-// New creates a new patchset
-func New(name string) *Patchset {
-	if name == "" {
+// Load returns a patchset with the given fields set.
+func Load(name, uuidStr string, version Version) *Patchset {
+	if name == "" || uuidStr == "" {
 		return nil
 	}
 	return &Patchset{
 		name:    name,
-		uuid:    uuid.NewRandom(),
-		version: InitialVersion(),
+		uuid:    uuid.Parse(uuidStr),
+		version: version,
 	}
+}
+
+// New creates a new patchset.
+func New(name string) *Patchset {
+	return Load(name, uuid.New(), InitialVersion())
 }
 
 // Version returns the version of the patchset

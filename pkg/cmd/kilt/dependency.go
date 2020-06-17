@@ -74,12 +74,18 @@ func runDep(op func(d dependency.Graph, ps, dep *patchset.Patchset) error, cmd *
 	}
 	ps, err := repo.FindPatchset(args[0])
 	if err != nil {
-		log.Exitf("Patchset %q does not exist: %v", args[0], err)
+		log.Exitf("Error finding patchset %q: %v", args[0], err)
+	}
+	if ps == nil {
+		log.Exitf("Patchset %q not found", args[0])
 	}
 	for _, d := range args[1:] {
 		dep, err := repo.FindPatchset(d)
 		if err != nil {
-			log.Exitf("Dependency %q does not exist: %v", args[0], err)
+			log.Exitf("Error finding dependency %q: %v", args[0], err)
+		}
+		if dep == nil {
+			log.Exitf("Patchset %q not found", d)
 		}
 		if err = op(deps, ps, dep); err != nil {
 			log.Exitf("Operation failed: %v", err)

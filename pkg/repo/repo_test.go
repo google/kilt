@@ -78,7 +78,7 @@ func cleanupRepo(t *testing.T, repo *git.Repository) {
 func TestCreateMetadataCommit(t *testing.T) {
 	r := setupRepo(t, "CreateMetadataCommit")
 	defer cleanupRepo(t, r)
-	g := Repo{r}
+	g := newWithGitRepo(r, "")
 	ref, err := g.git.Head()
 	if err != nil {
 		t.Fatalf("Head(): %v", err)
@@ -94,5 +94,55 @@ func TestCreateMetadataCommit(t *testing.T) {
 	}
 	if ref.Cmp(newref) == 0 {
 		t.Fatalf("createMetadataCommit(): No metadata created")
+	}
+}
+
+func TestFindPatchset(t *testing.T) {
+	r := setupRepo(t, "CreateMetadataCommit")
+
+	head, err := r.Head()
+	if err != nil {
+		t.Fatalf("r.Head(): %v", err)
+	}
+
+	headCommit, err := head.Peel(git.ObjectCommit)
+	if err != nil {
+		t.Fatalf("head.Peel(): %v", err)
+	}
+
+	base := headCommit.Id().String()
+	defer cleanupRepo(t, r)
+
+	g := newWithGitRepo(r, base)
+
+	patchsets := []string{"a", "b", "c"}
+	tests := []struct {
+		in  string
+		out bool
+	}{
+		{"a", true},
+		{"b", true},
+		{"c", true},
+		{"d", false},
+		{"", false},
+	}
+	for _, p := range patchsets {
+		ps := patchset.New(p)
+		if err := g.createMetadataCommit(ps); err != nil {
+			t.Fatalf("createMetadataCommit(%q): %v", p, err)
+		}
+	}
+	for _, tt := range tests {
+		p, err := g.FindPatchset(tt.in)
+		if err != nil {
+			t.Errorf("FindPatchset(%q): Got error %v", tt.in, err)
+			continue
+		}
+		switch {
+		case p == nil && tt.out:
+			t.Errorf("FindPatchset(%q): Got unexpected nil", tt.in)
+		case p != nil && !tt.out:
+			t.Errorf("FindPatchset(%q): Got patchset, expected nil", tt.in)
+		}
 	}
 }
