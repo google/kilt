@@ -18,6 +18,7 @@ limitations under the License.
 package dependency
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/google/kilt/pkg/patchset"
@@ -63,12 +64,14 @@ func (d *dependency) Equal(d2 *dependency) bool {
 
 // StructGraph implements a simple in-memory dependency graph
 type StructGraph struct {
+	patchsets    []*patchset.Patchset
 	dependencies map[string]*dependency
 }
 
 // NewStruct creates a new StructGraph
-func NewStruct() *StructGraph {
+func NewStruct(patchsets []*patchset.Patchset) *StructGraph {
 	return &StructGraph{
+		patchsets:    patchsets,
 		dependencies: make(map[string]*dependency),
 	}
 }
@@ -104,4 +107,57 @@ func (d *StructGraph) Remove(ps, dep *patchset.Patchset) error {
 		}
 	}
 	return fmt.Errorf("patchset %q does not depend on patchset %q", ps.Name(), dep.Name())
+}
+
+// flatten a structgraph to a map of patchset names to dependency names, for easy marshalling.
+func (d *StructGraph) flatten() map[string][]string {
+	f := map[string][]string{}
+	for _, d := range d.dependencies {
+		dependencies := []string{}
+		for _, p := range d.predicates {
+			dependencies = append(dependencies, p.String())
+		}
+		f[d.patchset.Name()] = dependencies
+	}
+	return f
+}
+
+// load a structgraph from a map of patchset names to dependendency names.
+func (d *StructGraph) load(f map[string][]string) error {
+	ps := make(map[string]*patchset.Patchset)
+	for _, p := range d.patchsets {
+		ps[p.Name()] = p
+	}
+	for name, deps := range f {
+		p, ok := ps[name]
+		if !ok {
+			return fmt.Errorf("patchset %q not found", name)
+		}
+		dep := dependency{patchset: p}
+		predicates := []*patchsetPredicate{}
+		for _, depName := range deps {
+			depPatchset, ok := ps[depName]
+			if !ok {
+				return fmt.Errorf("patchset dependency %q not found", depName)
+			}
+			predicates = append(predicates, &patchsetPredicate{depPatchset})
+		}
+		dep.predicates = predicates
+		d.dependencies[p.UUID().String()] = &dep
+	}
+	return nil
+}
+
+// MarshalJSON implements a simple JSON marshal of a StructGraph.
+func (d StructGraph) MarshalJSON() ([]byte, error) {
+	return json.Marshal(d.flatten())
+}
+
+// UnmarshalJSON implements a simple JSON unmarshal of a StructGraph.
+func (d *StructGraph) UnmarshalJSON(b []byte) error {
+	f := map[string][]string{}
+	if err := json.Unmarshal(b, &f); err != nil {
+		return err
+	}
+	return d.load(f)
 }

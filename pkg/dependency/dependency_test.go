@@ -63,7 +63,7 @@ func TestAdd(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		s := NewStruct()
+		s := NewStruct(nil)
 		for _, dep := range tt.addDeps {
 			s.Add(tt.patchset, dep)
 		}
@@ -148,7 +148,7 @@ func TestRemove(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		s := NewStruct()
+		s := NewStruct(nil)
 		s.dependencies = tt.startDeps
 		for _, dep := range tt.rmDeps {
 			s.Remove(tt.patchset, dep)

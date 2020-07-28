@@ -17,7 +17,9 @@ limitations under the License.
 package kilt
 
 import (
+	"encoding/json"
 	"errors"
+	"io/ioutil"
 
 	log "github.com/golang/glog"
 
@@ -46,6 +48,8 @@ include multiple dependencies.`,
 	Run:  runRm,
 }
 
+var dependencyFile = "dependencies.json"
+
 func init() {
 	rootCmd.AddCommand(addDepCmd)
 	rootCmd.AddCommand(rmDepCmd)
@@ -67,10 +71,22 @@ func runRm(cmd *cobra.Command, args []string) {
 }
 
 func runDep(op func(d dependency.Graph, ps, dep *patchset.Patchset) error, cmd *cobra.Command, args []string) {
-	deps := dependency.NewStruct()
 	repo, err := repo.Open()
 	if err != nil {
 		log.Exitf("Init failed: %s", err)
+	}
+	patchsets, err := repo.Patchsets()
+	if err != nil {
+		log.Exitf("Error loading patchsets: %v", err)
+	}
+	deps := dependency.NewStruct(patchsets)
+	b, err := ioutil.ReadFile(dependencyFile)
+	if err != nil {
+		log.Exitf("Failed to read %q: %v", dependencyFile, err)
+	}
+	err = json.Unmarshal(b, deps)
+	if err != nil {
+		log.Exitf("Failed to load %q: %v", dependencyFile, err)
 	}
 	ps, err := repo.FindPatchset(args[0])
 	if err != nil {
@@ -90,5 +106,13 @@ func runDep(op func(d dependency.Graph, ps, dep *patchset.Patchset) error, cmd *
 		if err = op(deps, ps, dep); err != nil {
 			log.Exitf("Operation failed: %v", err)
 		}
+	}
+	b, err = json.Marshal(deps)
+	if err != nil {
+		log.Exitf("Failed to marshal dependencies: %v", err)
+	}
+	err = ioutil.WriteFile(dependencyFile, b, 0666)
+	if err != nil {
+		log.Exitf("Failed to write file %q: %v", dependencyFile, err)
 	}
 }

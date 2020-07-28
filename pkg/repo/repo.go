@@ -105,17 +105,36 @@ func (r *Repo) createMetadataCommit(ps *patchset.Patchset) error {
 
 // FindPatchset iterates through the git tree and attempts to find the named patchset.
 func (r *Repo) FindPatchset(name string) (*patchset.Patchset, error) {
-	if len(r.patchsets) == 0 {
-		if err := r.walkPatchsets(); err != nil {
-			return nil, err
-		}
+	patchsets, err := r.Patchsets()
+	if err != nil {
+		return nil, err
 	}
-	for _, p := range r.patchsets {
+	for _, p := range patchsets {
 		if p.Name() == name {
 			return p, nil
 		}
 	}
 	return nil, nil
+}
+
+// Patchsets reads and returns an ordered list of patchsets
+func (r *Repo) Patchsets() ([]*patchset.Patchset, error) {
+	if len(r.patchsets) == 0 {
+		if err := r.walkPatchsets(); err != nil {
+			return nil, err
+		}
+	}
+	return r.patchsets, nil
+}
+
+// PatchsetMap reads and returns a map of patchset names to patchsets
+func (r *Repo) PatchsetMap() (map[string]*patchset.Patchset, error) {
+	if len(r.patchsetMap) == 0 {
+		if err := r.walkPatchsets(); err != nil {
+			return nil, err
+		}
+	}
+	return r.patchsetMap, nil
 }
 
 func (r *Repo) walkPatchsets() error {
