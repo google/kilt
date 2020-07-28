@@ -37,13 +37,11 @@ type Repo struct {
 }
 
 const (
-	metadataPrefix  = "kilt metadata: patchset "
-	metadataMessage = metadataPrefix + `%s
-
-Patchset-Name: %s
-Patchset-UUID: %s
-Patchset-Version: %s
-`
+	metadataPrefix       = "kilt metadata: patchset "
+	patchsetNameField    = "Patchset-Name"
+	patchsetUUIDField    = "Patchset-UUID"
+	patchsetVersionField = "Patchset-Version"
+	metadataMessage      = metadataPrefix + "%s\n\n" + patchsetNameField + ": %s\n" + patchsetUUIDField + ": %s\n" + patchsetVersionField + ": %s\n"
 )
 
 var (
@@ -168,39 +166,47 @@ func (r *Repo) walkPatchsets() error {
 		}
 
 		if isMetadataCommit(c) {
-			fields := parseFields(c.Message())
-			name, ok := fields["Patchset-Name"]
-			if !ok {
-				log.Warningf("Error parsing metadata: no Patchset-Name field found on commit %q", c.Id())
+			patchset, err := patchsetFromMetadata(c.Message())
+			if err != nil {
+				log.Warningf("Error parsing metadata for commit %q: %v", c.Id(), err)
 				continue
 			}
-			uuid, ok := fields["Patchset-UUID"]
-			if !ok {
-				log.Warningf("Error parsing metadata: no Patchset-UUID field found on commit %q", c.Id())
+			if patchset == nil {
+				log.Warningf("Got nil patchset for commit %q", c.Id())
 				continue
 			}
-			version := patchset.InitialVersion()
-			v, ok := fields["Patchset-Version"]
-			if !ok {
-				log.Warningf("Error parsing metadata: no Patchset-Version field found on commit %q", c.Id())
-			}
-			if parsedVersion, err := patchset.ParseVersion(v); err != nil {
-				log.Warningf("Error parsing version for commit %q: %v", c.Id(), err)
-			} else {
-				version = parsedVersion
-			}
-			if _, ok := patchsetMap[name]; ok {
-				log.Warningf("Patchset %q seen twice", name)
+			if _, ok := patchsetMap[patchset.Name()]; ok {
+				log.Warningf("Patchset %q seen twice", patchset.Name())
 				continue
 			}
-			patchset := patchset.Load(name, uuid, version)
 			patchsets = append(patchsets, patchset)
-			patchsetMap[name] = patchset
+			patchsetMap[patchset.Name()] = patchset
 		}
 	}
 	r.patchsets = patchsets
 	r.patchsetMap = patchsetMap
 	return nil
+}
+
+func patchsetFromMetadata(metadata string) (*patchset.Patchset, error) {
+	fields := parseFields(metadata)
+	name, ok := fields[patchsetNameField]
+	if !ok {
+		return nil, fmt.Errorf("no %s field found", patchsetNameField)
+	}
+	uuid, ok := fields[patchsetUUIDField]
+	if !ok {
+		return nil, fmt.Errorf("no %s field found", patchsetUUIDField)
+	}
+	v, ok := fields[patchsetVersionField]
+	if !ok {
+		return nil, fmt.Errorf("no %s field found", patchsetVersionField)
+	}
+	version, err := patchset.ParseVersion(v)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse version %q: %w", v, err)
+	}
+	return patchset.Load(name, uuid, version), nil
 }
 
 func isMetadataCommit(commit *git.Commit) bool {
