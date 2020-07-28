@@ -81,6 +81,9 @@ func (d *StructGraph) Add(ps, dep *patchset.Patchset) error {
 	if ps.SameAs(dep) {
 		return fmt.Errorf("can't add %q as a dependency of itself", ps.Name())
 	}
+	if !d.checkOrder(ps, dep) {
+		return fmt.Errorf("can't add %q as a dependency of preceding patchset %q", dep.Name(), ps.Name())
+	}
 	pdep := &patchsetPredicate{dep}
 	deps, ok := d.dependencies[ps.UUID().String()]
 	if !ok {
@@ -160,4 +163,17 @@ func (d *StructGraph) UnmarshalJSON(b []byte) error {
 		return err
 	}
 	return d.load(f)
+}
+
+// checkOrder verifies that dep does not precede ps in the patchset list.
+func (d *StructGraph) checkOrder(ps, dep *patchset.Patchset) bool {
+	for _, p := range d.patchsets {
+		if p.SameAs(ps) {
+			return true
+		}
+		if p.SameAs(dep) {
+			return false
+		}
+	}
+	return false
 }

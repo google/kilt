@@ -28,6 +28,9 @@ func TestAdd(t *testing.T) {
 	a := patchset.New("a")
 	b := patchset.New("b")
 	c := patchset.New("c")
+	d := patchset.New("d")
+	e := patchset.New("e")
+	patchsets := []*patchset.Patchset{a, b, c}
 	tests := []struct {
 		desc     string
 		patchset *patchset.Patchset
@@ -61,9 +64,28 @@ func TestAdd(t *testing.T) {
 				},
 			},
 		},
+		{
+			desc:     "Add reverse-dependency",
+			patchset: b,
+			addDeps:  []*patchset.Patchset{c, a},
+			deps: map[string]*dependency{
+				b.UUID().String(): {
+					patchset: b,
+					predicates: []*patchsetPredicate{
+						{c},
+					},
+				},
+			},
+		},
+		{
+			desc:     "Add to non-existent patchset",
+			patchset: d,
+			addDeps:  []*patchset.Patchset{e},
+			deps:     map[string]*dependency{},
+		},
 	}
 	for _, tt := range tests {
-		s := NewStruct(nil)
+		s := NewStruct(patchsets)
 		for _, dep := range tt.addDeps {
 			s.Add(tt.patchset, dep)
 		}
