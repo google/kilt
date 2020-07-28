@@ -107,6 +107,9 @@ func runDep(op func(d dependency.Graph, ps, dep *patchset.Patchset) error, cmd *
 			log.Exitf("Operation failed: %v", err)
 		}
 	}
+	if err = deps.Validate(); err != nil {
+		log.Exitf("Invalid graph: %v", err)
+	}
 	b, err = json.Marshal(deps)
 	if err != nil {
 		log.Exitf("Failed to marshal dependencies: %v", err)

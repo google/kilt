@@ -180,3 +180,31 @@ func TestRemove(t *testing.T) {
 		}
 	}
 }
+
+func TestValidate(t *testing.T) {
+	a := patchset.New("a")
+	b := patchset.New("b")
+	c := patchset.New("c")
+	patchsets := []*patchset.Patchset{a, b, c}
+	tests := []struct {
+		json  []byte
+		valid bool
+	}{
+		{[]byte(`{"a":["b","c"]}`), true},
+		{[]byte(`{"a":["b","c"],"b":["a","c"]}`), false},
+	}
+	for _, tt := range tests {
+		s := NewStruct(patchsets)
+		if err := s.UnmarshalJSON(tt.json); err != nil {
+			t.Errorf("Got error unmarshalling valid dependencies %q: %v", tt.json, err)
+			continue
+		}
+		if err := s.Validate(); (err != nil) == tt.valid {
+			if tt.valid {
+				t.Errorf("Got error validating dependencies %q: %v", tt.json, err)
+			} else {
+				t.Errorf("Expected error validating dependencies %q, got nil", tt.json)
+			}
+		}
+	}
+}

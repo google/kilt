@@ -20,6 +20,7 @@ package dependency
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/google/kilt/pkg/patchset"
 )
@@ -28,6 +29,7 @@ import (
 type Graph interface {
 	Add(patchset, dependency *patchset.Patchset) error
 	Remove(patchset, dependency *patchset.Patchset) error
+	Validate() error
 }
 
 type patchsetPredicate struct {
@@ -176,4 +178,48 @@ func (d *StructGraph) checkOrder(ps, dep *patchset.Patchset) bool {
 		}
 	}
 	return false
+}
+
+func (d StructGraph) checkGraph() error {
+	visited := make(map[string]bool)
+	for _, dep := range d.dependencies {
+		if visited[dep.patchset.UUID().String()] {
+			continue
+		}
+		if ps := d.findCycles(dep, visited, make(map[string]bool)); len(ps) > 0 {
+			return fmt.Errorf("cycle in dependencies: %s", strings.Join(ps, ", "))
+		}
+	}
+	return nil
+}
+
+func (d StructGraph) findCycles(dep *dependency, permanent, temporary map[string]bool) []string {
+	uuid := dep.patchset.UUID().String()
+	if permanent[uuid] {
+		return nil
+	}
+	if temporary[uuid] {
+		return []string{dep.patchset.Name()}
+	}
+
+	temporary[uuid] = true
+
+	for _, p := range dep.predicates {
+		newDep, ok := d.dependencies[p.Patchset.UUID().String()]
+		if !ok {
+			continue
+		}
+		if ps := d.findCycles(newDep, permanent, temporary); len(ps) > 0 {
+			return append(ps, dep.patchset.Name())
+		}
+	}
+
+	delete(temporary, uuid)
+	permanent[uuid] = true
+	return nil
+}
+
+// Validate checks that the dependency graph is a valid DAG.
+func (d StructGraph) Validate() error {
+	return d.checkGraph()
 }
