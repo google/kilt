@@ -18,7 +18,9 @@ limitations under the License.
 package repo
 
 import (
+	"errors"
 	"fmt"
+	"path"
 	"regexp"
 	"strings"
 
@@ -42,6 +44,7 @@ const (
 	patchsetUUIDField    = "Patchset-UUID"
 	patchsetVersionField = "Patchset-Version"
 	metadataMessage      = metadataPrefix + "%s\n\n" + patchsetNameField + ": %s\n" + patchsetUUIDField + ": %s\n" + patchsetVersionField + ": %s\n"
+	refPath              = "refs/kilt"
 )
 
 var (
@@ -61,11 +64,53 @@ func Open() (*Repo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open repo: %w", err)
 	}
-	base, err := g.References.Lookup("refs/kilt/base")
+	baseRefPath, err := baseRef(g)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate base ref: %w", err)
+	}
+	base, err := g.References.Lookup(baseRefPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to lookup base: %w", err)
 	}
 	return newWithGitRepo(g, base.Target().String()), nil
+}
+
+// Init initializes kilt in the current branch.
+func Init(base string) (*Repo, error) {
+	g, err := git.OpenRepository(".")
+	if err != nil {
+		return nil, fmt.Errorf("failed to open repo: %w", err)
+	}
+	obj, err := g.RevparseSingle(base)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse base %q: %w", base, err)
+	}
+	baseRefPath, err := baseRef(g)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate base ref: %w", err)
+	}
+	if _, err := g.References.Create(baseRefPath, obj.Id(), false, fmt.Sprintf("Creating kilt base reference %s", baseRefPath)); err != nil {
+		return nil, fmt.Errorf("failed to create ref: %w", err)
+	}
+	return newWithGitRepo(g, base), nil
+}
+
+func baseRef(g *git.Repository) (string, error) {
+	if detached, err := g.IsHeadDetached(); err != nil {
+		return "", fmt.Errorf("failed while checking detached head: %w", err)
+	} else if detached {
+		return "", errors.New("must not be on a detached head")
+	}
+	head, err := g.Head()
+	if err != nil {
+		return "", fmt.Errorf("failed to read head: %w", err)
+	}
+	branch := head.Branch()
+	branchName, err := branch.Name()
+	if err != nil {
+		return "", fmt.Errorf("failed to get current branch name: %w", err)
+	}
+	return path.Join(refPath, branchName, "base"), nil
 }
 
 // AddPatchset will add the given patchset to the head of the repo
