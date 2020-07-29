@@ -81,12 +81,11 @@ func runDep(op func(d dependency.Graph, ps, dep *patchset.Patchset) error, cmd *
 	}
 	deps := dependency.NewStruct(patchsets)
 	b, err := ioutil.ReadFile(dependencyFile)
-	if err != nil {
-		log.Exitf("Failed to read %q: %v", dependencyFile, err)
-	}
-	err = json.Unmarshal(b, deps)
-	if err != nil {
-		log.Exitf("Failed to load %q: %v", dependencyFile, err)
+	if err == nil {
+		err = json.Unmarshal(b, deps)
+		if err != nil {
+			log.Exitf("Failed to load %q: %v", dependencyFile, err)
+		}
 	}
 	ps, err := repo.FindPatchset(args[0])
 	if err != nil {
@@ -110,10 +109,11 @@ func runDep(op func(d dependency.Graph, ps, dep *patchset.Patchset) error, cmd *
 	if err = deps.Validate(); err != nil {
 		log.Exitf("Invalid graph: %v", err)
 	}
-	b, err = json.Marshal(deps)
+	b, err = json.MarshalIndent(deps, "", "  ")
 	if err != nil {
 		log.Exitf("Failed to marshal dependencies: %v", err)
 	}
+	b = append(b, "\n"...)
 	err = ioutil.WriteFile(dependencyFile, b, 0666)
 	if err != nil {
 		log.Exitf("Failed to write file %q: %v", dependencyFile, err)
