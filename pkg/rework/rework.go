@@ -20,14 +20,23 @@ package rework
 import (
 	"fmt"
 
+	log "github.com/golang/glog"
+	"github.com/google/kilt/pkg/queue"
 	"github.com/google/kilt/pkg/repo"
 )
 
-// Init initializes a new rework. Currently just a placeholder stub that opens the repo.
-func Init() error {
+// Init initializes a new rework. Currently just a placeholder with a fake operation.
+func Init() (queue.Executor, error) {
 	if _, err := repo.Open(); err != nil {
-		return fmt.Errorf("failed to initialize rework: %w", err)
+		return queue.Executor{}, fmt.Errorf("failed to initialize rework: %w", err)
 	}
-
-	return nil
+	e := queue.NewExecutor()
+	e.Register(queue.Operation{
+		Name: "asdf",
+		Execute: func(args []string) error {
+			log.Info("test")
+			return nil
+		},
+	})
+	return e, e.Enqueue("asdf", "arg")
 }
