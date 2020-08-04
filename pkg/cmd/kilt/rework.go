@@ -53,11 +53,11 @@ func argsRework(*cobra.Command, []string) error {
 }
 
 func runRework(cmd *cobra.Command, args []string) {
-	r, err := rework.Init()
+	c, err := rework.NewBeginCommand()
 	if err != nil {
-		log.Exitf("Failed to init rework: %v", err)
+		log.Exitf("Rework failed: %v", err)
 	}
-	if err = r.ExecuteAll(); err != nil {
-		log.Exitf("Failed to execute rework: %v", err)
+	if err = c.Execute(); err != nil {
+		log.Exitf("Rework failed: %v", err)
 	}
 }

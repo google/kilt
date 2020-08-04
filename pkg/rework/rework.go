@@ -18,25 +18,114 @@ limitations under the License.
 package rework
 
 import (
+	"errors"
 	"fmt"
 
-	log "github.com/golang/glog"
 	"github.com/google/kilt/pkg/queue"
 	"github.com/google/kilt/pkg/repo"
 )
 
-// Init initializes a new rework. Currently just a placeholder with a fake operation.
-func Init() (queue.Executor, error) {
-	if _, err := repo.Open(); err != nil {
-		return queue.Executor{}, fmt.Errorf("failed to initialize rework: %w", err)
+// Command defines a rework command.
+type Command struct {
+	repo     *repo.Repo
+	executor queue.Executor
+}
+
+// NewCommand opens the repo and returns a new rework command.
+func NewCommand() (*Command, error) {
+	r, err := repo.Open()
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize rework: %w", err)
 	}
 	e := queue.NewExecutor()
-	e.Register(queue.Operation{
-		Name: "asdf",
-		Execute: func(args []string) error {
-			log.Info("test")
-			return nil
+	return &Command{repo: r, executor: e}, nil
+}
+
+// Save will marshal and save the command. Currently a placeholder that just prints it.
+func (c Command) Save() {
+	q, err := c.executor.MarshalQueue()
+	if err == nil {
+		fmt.Println(string(q))
+	}
+}
+
+// Execute will execute the command, running an queued operations.
+func (c *Command) Execute() error {
+	return c.executor.ExecuteAll()
+}
+
+func registerOperations(e *queue.Executor, r *repo.Repo) {
+	var operations = []queue.Operation{
+		{
+			Name: "Begin",
+			Execute: func(_ []string) error {
+				return startNewRework(r)
+			},
 		},
-	})
-	return e, e.Enqueue("asdf", "arg")
+	}
+	for _, op := range operations {
+		e.Register(op)
+	}
+}
+
+// NewBeginCommand returns a command that begins a new rework.
+func NewBeginCommand() (*Command, error) {
+	c, err := NewCommand()
+	if err != nil {
+		return nil, err
+	}
+	registerOperations(&c.executor, c.repo)
+
+	if err = c.executor.Enqueue("Begin"); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+func startNewRework(r *repo.Repo) error {
+	if exists, err := checkExistingRework(r); err != nil {
+		return err
+	} else if exists {
+		return fmt.Errorf("rework already in progress")
+	}
+	if err := r.WriteRefHead("rework/head"); err != nil {
+		return err
+	}
+	if err := r.WriteSymbolicRefHead("rework/branch"); err != nil {
+		return err
+	}
+	return r.SetHead("rework/head")
+}
+
+type reworkState struct {
+	branch, head string
+}
+
+func loadExistingRework(r *repo.Repo) (reworkState, error) {
+	var head, branch string
+	if branch, err := r.LookupKiltRef("rework/branch"); err != nil {
+		return reworkState{}, err
+	} else if branch == "" {
+		return reworkState{}, errors.New("failed to lookup rework branch")
+	}
+	if head, err := r.LookupKiltRef("rework/head"); err != nil {
+		return reworkState{}, err
+	} else if head == "" {
+		return reworkState{}, errors.New("failed to lookup rework head")
+	}
+	return reworkState{branch: branch, head: head}, nil
+}
+
+func checkExistingRework(r *repo.Repo) (bool, error) {
+	if s, err := r.LookupKiltRef("rework/branch"); err != nil {
+		return false, err
+	} else if s != "" {
+		return true, nil
+	}
+	if s, err := r.LookupKiltRef("rework/head"); err != nil {
+		return false, err
+	} else if s != "" {
+		return true, nil
+	}
+	return false, nil
 }

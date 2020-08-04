@@ -95,28 +95,122 @@ func Init(base string) (*Repo, error) {
 	return newWithGitRepo(g, base), nil
 }
 
+// LookupKiltRef will lookup the specified ref name under the kilt ref path.
+func (r *Repo) LookupKiltRef(name string) (string, error) {
+	p := path.Join(refPath, name)
+	ref, err := r.git.References.Lookup(p)
+	if git.IsErrorCode(err, git.ErrNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to lookup ref %q: %w", name, err)
+	}
+	ref, err = ref.Resolve()
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve ref: %w", err)
+	}
+	return ref.Name(), nil
+}
+
 func baseRef(g *git.Repository) (string, error) {
+	var branchName string
 	if detached, err := g.IsHeadDetached(); err != nil {
 		return "", fmt.Errorf("failed while checking detached head: %w", err)
 	} else if detached {
-		return "", errors.New("must not be on a detached head")
-	}
-	head, err := g.Head()
-	if err != nil {
-		return "", fmt.Errorf("failed to read head: %w", err)
-	}
-	branch := head.Branch()
-	branchName, err := branch.Name()
-	if err != nil {
-		return "", fmt.Errorf("failed to get current branch name: %w", err)
+		ref, err := g.References.Lookup(path.Join(refPath, "rework/branch"))
+		if git.IsErrorCode(err, git.ErrNotFound) {
+			return "", errors.New("must not be on a detached head")
+		}
+		if err != nil {
+			return "", fmt.Errorf("failed while checking rework branch: %w", err)
+		}
+		branchRef, err := ref.Resolve()
+		if err != nil {
+			return "", fmt.Errorf("failed to resolve reference: %w", err)
+		}
+		branchName, err = branchRef.Branch().Name()
+		if err != nil {
+			return "", fmt.Errorf("failed to get branch name: %w", err)
+		}
+	} else {
+		head, err := g.Head()
+		if err != nil {
+			return "", fmt.Errorf("failed to read head: %w", err)
+		}
+		branchName, err = head.Branch().Name()
+		if err != nil {
+			return "", fmt.Errorf("failed to get current branch name: %w", err)
+		}
 	}
 	return path.Join(refPath, branchName, "base"), nil
+}
+
+// WriteRefHead will write the current head to the specified kilt ref.
+func (r *Repo) WriteRefHead(name string) error {
+	if detached, err := r.git.IsHeadDetached(); err != nil {
+		return fmt.Errorf("failed while checking detached head: %w", err)
+	} else if detached {
+		return errors.New("must not be on a detached head")
+	}
+	ref, err := r.git.Head()
+	if err != nil {
+		return fmt.Errorf("failed to lookup head: %w", err)
+	}
+	obj, err := ref.Peel(git.ObjectCommit)
+	if err != nil {
+		return fmt.Errorf("failed to get commit object: %w", err)
+	}
+	refName := path.Join(refPath, name)
+	if _, err = r.git.References.Create(refName, obj.Id(), false, "Updating kilt rework reference"); err != nil {
+		return fmt.Errorf("failed to create ref %q: %w", refName, err)
+	}
+	return nil
+}
+
+// WriteSymbolicRefHead will write the current symbolic head to the specified kilt ref.
+func (r *Repo) WriteSymbolicRefHead(name string) error {
+	if detached, err := r.git.IsHeadDetached(); err != nil {
+		return fmt.Errorf("failed while checking detached head: %w", err)
+	} else if detached {
+		return errors.New("must not be on a detached head")
+	}
+	ref, err := r.git.Head()
+	if err != nil {
+		return fmt.Errorf("failed to lookup head: %w", err)
+	}
+	refName := path.Join(refPath, name)
+	if _, err := r.git.References.CreateSymbolic(refName, ref.Name(), false, "Updating kilt rework reference"); err != nil {
+		return fmt.Errorf("failed to create ref %q: %w", refName, err)
+	}
+	return nil
+}
+
+// SetHead will set the current head to the given kilt ref.
+func (r *Repo) SetHead(name string) error {
+	return r.git.SetHead(path.Join(refPath, name))
 }
 
 // AddPatchset will add the given patchset to the head of the repo
 func (r *Repo) AddPatchset(ps *patchset.Patchset) error {
 	err := r.createMetadataCommit(ps)
 	return err
+}
+
+// DetachHead will detach the head from the current branch but stay on the same commit.
+func (r *Repo) DetachHead() error {
+	ref, err := r.git.Head()
+	if err != nil {
+		return err
+	}
+	obj, err := ref.Peel(git.ObjectCommit)
+	if err != nil {
+		return err
+	}
+	err = r.git.SetHeadDetached(obj.Id())
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (r *Repo) createMetadataCommit(ps *patchset.Patchset) error {
