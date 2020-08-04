@@ -44,8 +44,16 @@ diff between them is empty.`,
 	Run:  runRework,
 }
 
+var reworkFlags = struct {
+	begin  bool
+	finish bool
+}{}
+
 func init() {
 	rootCmd.AddCommand(reworkCmd)
+	reworkCmd.Flags().BoolVar(&reworkFlags.begin, "begin", true, "begin rework")
+	reworkCmd.Flags().MarkHidden("begin")
+	reworkCmd.Flags().BoolVar(&reworkFlags.finish, "finish", false, "finish rework")
 }
 
 func argsRework(*cobra.Command, []string) error {
@@ -53,7 +61,16 @@ func argsRework(*cobra.Command, []string) error {
 }
 
 func runRework(cmd *cobra.Command, args []string) {
-	c, err := rework.NewBeginCommand()
+	var c *rework.Command
+	var err error
+	switch {
+	case reworkFlags.finish:
+		c, err = rework.NewFinishCommand()
+	case reworkFlags.begin:
+		c, err = rework.NewBeginCommand()
+	default:
+		log.Exitf("No operation specified")
+	}
 	if err != nil {
 		log.Exitf("Rework failed: %v", err)
 	}

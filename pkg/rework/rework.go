@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 
+	log "github.com/golang/glog"
 	"github.com/google/kilt/pkg/queue"
 	"github.com/google/kilt/pkg/repo"
 )
@@ -56,6 +57,12 @@ func (c *Command) Execute() error {
 
 func registerOperations(e *queue.Executor, r *repo.Repo) {
 	var operations = []queue.Operation{
+		{
+			Name: "Finish",
+			Execute: func(_ []string) error {
+				return finishRework(r)
+			},
+		},
 		{
 			Name: "Begin",
 			Execute: func(_ []string) error {
@@ -95,6 +102,39 @@ func startNewRework(r *repo.Repo) error {
 		return err
 	}
 	return r.SetHead("rework/head")
+}
+
+// NewFinishCommand returns a command that finishes a rework.
+func NewFinishCommand() (*Command, error) {
+	c, err := NewCommand()
+	if err != nil {
+		return nil, err
+	}
+	registerOperations(&c.executor, c.repo)
+	if err = c.executor.Enqueue("Finish"); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+func finishRework(r *repo.Repo) error {
+	if err := r.SetIndirectBranchToHead("rework/branch"); err != nil {
+		return err
+	}
+	if err := r.CheckoutIndirectBranch("rework/branch"); err != nil {
+		return err
+	}
+	cleanupReworkState(r)
+	return nil
+}
+
+func cleanupReworkState(r *repo.Repo) {
+	if err := r.DeleteKiltRef("rework/branch"); err != nil {
+		log.Errorf("Error deleting kilt rework branch ref: %v", err)
+	}
+	if err := r.DeleteKiltRef("rework/head"); err != nil {
+		log.Errorf("Error deleting kilt rework head ref: %v", err)
+	}
 }
 
 type reworkState struct {

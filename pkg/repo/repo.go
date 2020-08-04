@@ -185,9 +185,38 @@ func (r *Repo) WriteSymbolicRefHead(name string) error {
 	return nil
 }
 
+// DeleteKiltRef will delete the specified kilt ref.
+func (r *Repo) DeleteKiltRef(name string) error {
+	p := path.Join(refPath, name)
+	ref, err := r.git.References.Lookup(p)
+	if err != nil {
+		return fmt.Errorf("failed to lookup ref %q: %w", name, err)
+	}
+	return ref.Delete()
+}
+
 // SetHead will set the current head to the given kilt ref.
 func (r *Repo) SetHead(name string) error {
 	return r.git.SetHead(path.Join(refPath, name))
+}
+
+// SetIndirectBranchToHead will resolve the ref and set head to point to the resolved target.
+func (r *Repo) SetIndirectBranchToHead(name string) error {
+	p := path.Join(refPath, name)
+	ref, err := r.git.References.Lookup(p)
+	if err != nil {
+		return fmt.Errorf("failed to lookup ref %q: %w", name, err)
+	}
+	ref, err = ref.Resolve()
+	if err != nil {
+		return fmt.Errorf("failed to resolve ref: %w", err)
+	}
+	head, err := r.git.Head()
+	if err != nil {
+		return err
+	}
+	_, err = ref.SetTarget(head.Target(), "Finishing rework")
+	return err
 }
 
 // AddPatchset will add the given patchset to the head of the repo
@@ -211,6 +240,34 @@ func (r *Repo) DetachHead() error {
 		return err
 	}
 	return nil
+}
+
+// CheckoutIndirectBranch will resolve the ref and checkout the branch that the resolved target points to.
+func (r *Repo) CheckoutIndirectBranch(name string) error {
+	p := path.Join(refPath, name)
+	ref, err := r.git.References.Lookup(p)
+	if err != nil {
+		return fmt.Errorf("failed to lookup ref %q: %w", name, err)
+	}
+	ref, err = ref.Resolve()
+	if err != nil {
+		return fmt.Errorf("failed to resolve ref: %w", err)
+	}
+	treeObj, err := ref.Peel(git.ObjectTree)
+	if err != nil {
+		return err
+	}
+	tree, err := treeObj.AsTree()
+	if err != nil {
+		return err
+	}
+	if err := r.git.CheckoutTree(tree, &git.CheckoutOpts{Strategy: git.CheckoutSafe}); err != nil {
+		return err
+	}
+	if err := r.git.SetHead(ref.Name()); err != nil {
+		return err
+	}
+	return r.git.StateCleanup()
 }
 
 func (r *Repo) createMetadataCommit(ps *patchset.Patchset) error {
