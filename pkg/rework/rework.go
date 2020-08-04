@@ -58,6 +58,20 @@ func (c *Command) Execute() error {
 func registerOperations(e *queue.Executor, r *repo.Repo) {
 	var operations = []queue.Operation{
 		{
+			Name: "Validate",
+			Execute: func(_ []string) error {
+				if valid, err := validateRework(r); err != nil {
+					return err
+				} else if !valid {
+					return &ErrInvalidRework{
+						original: "refs/kilt/rework/branch",
+						reworked: "HEAD",
+					}
+				}
+				return nil
+			},
+		},
+		{
 			Name: "Finish",
 			Execute: func(_ []string) error {
 				return finishRework(r)
@@ -105,12 +119,17 @@ func startNewRework(r *repo.Repo) error {
 }
 
 // NewFinishCommand returns a command that finishes a rework.
-func NewFinishCommand() (*Command, error) {
+func NewFinishCommand(force bool) (*Command, error) {
 	c, err := NewCommand()
 	if err != nil {
 		return nil, err
 	}
 	registerOperations(&c.executor, c.repo)
+	if !force {
+		if err = c.executor.Enqueue("Validate"); err != nil {
+			return nil, err
+		}
+	}
 	if err = c.executor.Enqueue("Finish"); err != nil {
 		return nil, err
 	}
@@ -118,6 +137,11 @@ func NewFinishCommand() (*Command, error) {
 }
 
 func finishRework(r *repo.Repo) error {
+	if exists, err := checkExistingRework(r); err != nil {
+		return err
+	} else if !exists {
+		return fmt.Errorf("no rework in progress")
+	}
 	if err := r.SetIndirectBranchToHead("rework/branch"); err != nil {
 		return err
 	}
@@ -126,6 +150,37 @@ func finishRework(r *repo.Repo) error {
 	}
 	cleanupReworkState(r)
 	return nil
+}
+
+// ErrInvalidRework indicates that the rework is invalid and the trees don't match.
+type ErrInvalidRework struct {
+	original, reworked string
+}
+
+func (e *ErrInvalidRework) Error() string {
+	return fmt.Sprintf("rework tree doesn't match: git diff-tree -p %s %s", e.original, e.reworked)
+}
+
+// NewValidateCommand returns a command that checks the validity of the rework.
+func NewValidateCommand() (*Command, error) {
+	c, err := NewCommand()
+	if err != nil {
+		return nil, err
+	}
+	registerOperations(&c.executor, c.repo)
+	if err = c.executor.Enqueue("Validate"); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+func validateRework(r *repo.Repo) (bool, error) {
+	if exists, err := checkExistingRework(r); err != nil {
+		return false, err
+	} else if !exists {
+		return false, fmt.Errorf("no rework in progress")
+	}
+	return r.CompareTreeToHead("rework/branch")
 }
 
 func cleanupReworkState(r *repo.Repo) {

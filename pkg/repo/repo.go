@@ -270,6 +270,35 @@ func (r *Repo) CheckoutIndirectBranch(name string) error {
 	return r.git.StateCleanup()
 }
 
+func treeFromRef(repo *git.Repository, name string) (*git.Object, error) {
+	ref, err := repo.References.Lookup(name)
+	if err != nil {
+		return nil, fmt.Errorf("failed to lookup ref %q: %w", name, err)
+	}
+	ref, err = ref.Resolve()
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve ref: %w", err)
+	}
+	tree, err := ref.Peel(git.ObjectTree)
+	if err != nil {
+		return nil, err
+	}
+	return tree, nil
+}
+
+// CompareTreeToHead checks whether the tree pointed to by kiltRef is equal to the tree at head.
+func (r *Repo) CompareTreeToHead(kiltRef string) (bool, error) {
+	refTree, err := treeFromRef(r.git, path.Join(refPath, kiltRef))
+	if err != nil {
+		return false, err
+	}
+	headTree, err := treeFromRef(r.git, "HEAD")
+	if err != nil {
+		return false, err
+	}
+	return refTree.Id().Equal(headTree.Id()), nil
+}
+
 func (r *Repo) createMetadataCommit(ps *patchset.Patchset) error {
 	head, err := r.git.Head()
 	if err != nil {
