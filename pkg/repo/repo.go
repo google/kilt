@@ -304,6 +304,59 @@ func (r *Repo) CheckoutPatchset(patchset string) error {
 	return r.checkoutRev(id)
 }
 
+// ErrUserActionRequired is returned when an action couldn't be completed and requires user intervention.
+var ErrUserActionRequired = errors.New("conflicts during cherry pick")
+
+// CherryPickToHead will cherrypick a commit with the given id to the current head.
+func (r *Repo) CherryPickToHead(id string) error {
+	obj, err := r.git.RevparseSingle(id)
+	if err != nil {
+		return err
+	}
+	commit, err := obj.AsCommit()
+	if err != nil {
+		return err
+	}
+	opts, err := git.DefaultCherrypickOptions()
+	if err != nil {
+		return err
+	}
+	if err = r.git.Cherrypick(commit, opts); err != nil {
+		return err
+	}
+	ix, err := r.git.Index()
+	if err != nil {
+		return err
+	}
+	if ix.HasConflicts() {
+		return ErrUserActionRequired
+	}
+	oid, err := ix.WriteTree()
+	if err != nil {
+		return err
+	}
+	tree, err := r.git.LookupTree(oid)
+	if err != nil {
+		return err
+	}
+	ref, err := r.git.Head()
+	if err != nil {
+		return err
+	}
+	parentObj, err := ref.Peel(git.ObjectCommit)
+	if err != nil {
+		return err
+	}
+	parent, err := parentObj.AsCommit()
+	if err != nil {
+		return err
+	}
+	if _, err := r.git.CreateCommit("HEAD", commit.Author(), commit.Committer(), commit.Message(), tree, parent); err != nil {
+		return err
+	}
+	return r.git.StateCleanup()
+}
+
 // AddPatchset will add the given patchset to the head of the repo
 func (r *Repo) AddPatchset(ps *patchset.Patchset) error {
 	err := r.createMetadataCommit(ps)
@@ -411,6 +464,25 @@ func (r *Repo) createMetadataCommit(ps *patchset.Patchset) error {
 		return fmt.Errorf("failed to create new commit: %w", err)
 	}
 	return nil
+}
+
+// UpdateMetadataForCommit will increment the version number of the given metadata commit.
+func (r *Repo) UpdateMetadataForCommit(id string) error {
+	obj, err := r.git.RevparseSingle(id)
+	if err != nil {
+		return err
+	}
+	commit, err := obj.AsCommit()
+	if err != nil {
+		return err
+	}
+	ps, err := patchsetFromMetadata(commit.Message())
+	if err != nil {
+		return err
+	}
+	version := ps.Version().Successor()
+	newPatchset := patchset.Load(ps.Name(), ps.UUID().String(), version)
+	return r.createMetadataCommit(newPatchset)
 }
 
 // FindPatchset iterates through the git tree and attempts to find the named patchset.

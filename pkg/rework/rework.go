@@ -311,13 +311,97 @@ func validateRework(r *repo.Repo) (bool, error) {
 }
 
 func reworkPatchset(r *repo.Repo, patchset string) error {
-	log.Infof("Reworking patchset %s", patchset)
-	return nil
+	patchsets, err := r.PatchsetMap()
+	if err != nil {
+		return err
+	}
+	p, ok := patchsets[patchset]
+	if !ok {
+		return fmt.Errorf("patchset %q not found", patchset)
+	}
+	c, err := NewCommand()
+	if err != nil {
+		return err
+	}
+
+	registerReworkOperations(&c.executor, c.repo)
+
+	if p.MetadataCommit() == "" {
+		c.executor.Enqueue("CreateMetadata", p.Name())
+	} else {
+		c.executor.Enqueue("UpdateMetadata", p.MetadataCommit())
+	}
+	for _, patch := range p.Patches() {
+		c.executor.Enqueue("Apply", patch)
+	}
+	for _, patch := range p.FloatingPatches() {
+		c.executor.Enqueue("Cherrypick", patch)
+	}
+	return c.Execute()
 }
 
 func applyPatchset(r *repo.Repo, patchset string) error {
-	log.Infof("Applying patchset %s", patchset)
-	return nil
+	patchsets, err := r.PatchsetMap()
+	if err != nil {
+		return err
+	}
+	p, ok := patchsets[patchset]
+	if !ok {
+		return fmt.Errorf("patchset %q not found", patchset)
+	}
+	c, err := NewCommand()
+	if err != nil {
+		return err
+	}
+
+	registerReworkOperations(&c.executor, c.repo)
+
+	c.executor.Enqueue("Apply", p.MetadataCommit())
+	for _, patch := range p.Patches() {
+		c.executor.Enqueue("Apply", patch)
+	}
+	return c.Execute()
+}
+
+func registerReworkOperations(e *queue.Executor, r *repo.Repo) {
+	var operations = []queue.Operation{
+		{
+			Name: "Apply",
+			Execute: func(patch []string) error {
+				fmt.Printf("Applying %s\n", patch[0])
+				return r.CherryPickToHead(patch[0])
+			},
+			Resumable: true,
+		},
+		{
+			Name: "Cherrypick",
+			Execute: func(patch []string) error {
+				fmt.Printf("Cherrypick %s\n", patch[0])
+				return r.CherryPickToHead(patch[0])
+			},
+			Resumable: true,
+		},
+		{
+			Name: "UpdateMetadata",
+			Execute: func(patch []string) error {
+				fmt.Printf("Updating metadata %s\n", patch[0])
+				return r.UpdateMetadataForCommit(patch[0])
+			},
+			Resumable: true,
+		},
+		{
+			Name: "CreateMetadata",
+			Execute: func(ps []string) error {
+				fmt.Printf("Creating metadata for %s\n", ps[0])
+				p := patchset.New(ps[0])
+				return r.AddPatchset(p)
+			},
+			Resumable: true,
+		},
+	}
+	for _, op := range operations {
+		e.Register(op)
+	}
 }
 
 func cleanupReworkState(r *repo.Repo) {
