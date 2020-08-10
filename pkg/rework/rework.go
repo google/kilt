@@ -22,6 +22,7 @@ import (
 	"fmt"
 
 	log "github.com/golang/glog"
+	"github.com/google/kilt/pkg/patchset"
 	"github.com/google/kilt/pkg/queue"
 	"github.com/google/kilt/pkg/repo"
 )
@@ -55,8 +56,56 @@ func (c *Command) Execute() error {
 	return c.executor.ExecuteAll()
 }
 
+// TargetSelector selects patchsets based on some criteria.
+type TargetSelector interface {
+	Select(patchset *patchset.Patchset) bool
+}
+
+// FloatingTargets selects patchsets that have any floating targets.
+type FloatingTargets struct{}
+
+// Select will return true if the patchset has any floating targets.
+func (FloatingTargets) Select(patchset *patchset.Patchset) bool {
+	return len(patchset.FloatingPatches()) > 0
+}
+
+// AllTargets selects every patchset.
+type AllTargets struct{}
+
+// Select will always return true.
+func (AllTargets) Select(_ *patchset.Patchset) bool {
+	return true
+}
+
+// NoTargets selects nothing.
+type NoTargets struct{}
+
+// Select will always return false.
+func (NoTargets) Select(_ *patchset.Patchset) bool {
+	return false
+}
+
+// PatchsetTarget selects a specified patchset.
+type PatchsetTarget struct {
+	Name string
+}
+
+// Select returns true if the patchset name matches.
+func (t PatchsetTarget) Select(patchset *patchset.Patchset) bool {
+	return t.Name == patchset.Name()
+}
+
 func registerOperations(e *queue.Executor, r *repo.Repo) {
 	var operations = []queue.Operation{
+		{
+			Name: "UpdateHead",
+			Execute: func(_ []string) error {
+				if err := r.WriteRefHead("rework/head"); err != nil {
+					return err
+				}
+				return r.SetHead("rework/head")
+			},
+		},
 		{
 			Name: "Validate",
 			Execute: func(_ []string) error {
@@ -83,14 +132,64 @@ func registerOperations(e *queue.Executor, r *repo.Repo) {
 				return startNewRework(r)
 			},
 		},
+		{
+			Name: "Rework",
+			Execute: func(patchset []string) error {
+				if len(patchset) == 0 {
+					return errors.New("no patchset specified")
+				}
+				fmt.Printf("Reworking patchset %s\n", patchset[0])
+				return reworkPatchset(r, patchset[0])
+			},
+			Resumable: true,
+		},
+		{
+			Name: "Checkout",
+			Execute: func(patchset []string) error {
+				if len(patchset) == 0 {
+					return errors.New("no patchset specified")
+				}
+				fmt.Printf("Checking out patchset %s\n", patchset[0])
+				return r.CheckoutPatchset(patchset[0])
+			},
+			Resumable: true,
+		},
+		{
+			Name: "CheckoutBase",
+			Execute: func(patchset []string) error {
+				fmt.Println("Checking out kilt base")
+				return r.CheckoutBase()
+			},
+			Resumable: true,
+		},
+		{
+			Name: "Apply",
+			Execute: func(patchset []string) error {
+				if len(patchset) == 0 {
+					return errors.New("no patchset specified")
+				}
+				fmt.Printf("Applying patchset %s\n", patchset[0])
+				return applyPatchset(r, patchset[0])
+			},
+			Resumable: true,
+		},
 	}
 	for _, op := range operations {
 		e.Register(op)
 	}
 }
 
+func selectPatchset(selectors []TargetSelector, patchset *patchset.Patchset) bool {
+	for _, s := range selectors {
+		if s.Select(patchset) {
+			return true
+		}
+	}
+	return false
+}
+
 // NewBeginCommand returns a command that begins a new rework.
-func NewBeginCommand() (*Command, error) {
+func NewBeginCommand(selectors ...TargetSelector) (*Command, error) {
 	c, err := NewCommand()
 	if err != nil {
 		return nil, err
@@ -100,11 +199,39 @@ func NewBeginCommand() (*Command, error) {
 	if err = c.executor.Enqueue("Begin"); err != nil {
 		return nil, err
 	}
+	patchsets, err := c.repo.Patchsets()
+	if err != nil {
+		return nil, err
+	}
+	first := true
+	var previous *patchset.Patchset
+	for _, p := range patchsets {
+		if selectPatchset(selectors, p) {
+			if first {
+				if previous != nil {
+					c.executor.Enqueue("Checkout", previous.Name())
+				} else {
+					c.executor.Enqueue("CheckoutBase")
+				}
+				first = false
+			}
+			c.executor.Enqueue("Rework", p.Name())
+		} else {
+			if !first {
+				c.executor.Enqueue("Apply", p.Name())
+			} else {
+				previous = p
+			}
+		}
+	}
+	if err = c.executor.Enqueue("UpdateHead"); err != nil {
+		return nil, err
+	}
 	return c, nil
 }
 
 func startNewRework(r *repo.Repo) error {
-	if exists, err := checkExistingRework(r); err != nil {
+	if exists, err := r.ReworkInProgress(); err != nil {
 		return err
 	} else if exists {
 		return fmt.Errorf("rework already in progress")
@@ -137,7 +264,7 @@ func NewFinishCommand(force bool) (*Command, error) {
 }
 
 func finishRework(r *repo.Repo) error {
-	if exists, err := checkExistingRework(r); err != nil {
+	if exists, err := r.ReworkInProgress(); err != nil {
 		return err
 	} else if !exists {
 		return fmt.Errorf("no rework in progress")
@@ -175,12 +302,22 @@ func NewValidateCommand() (*Command, error) {
 }
 
 func validateRework(r *repo.Repo) (bool, error) {
-	if exists, err := checkExistingRework(r); err != nil {
+	if exists, err := r.ReworkInProgress(); err != nil {
 		return false, err
 	} else if !exists {
 		return false, fmt.Errorf("no rework in progress")
 	}
 	return r.CompareTreeToHead("rework/branch")
+}
+
+func reworkPatchset(r *repo.Repo, patchset string) error {
+	log.Infof("Reworking patchset %s", patchset)
+	return nil
+}
+
+func applyPatchset(r *repo.Repo, patchset string) error {
+	log.Infof("Applying patchset %s", patchset)
+	return nil
 }
 
 func cleanupReworkState(r *repo.Repo) {
@@ -209,18 +346,4 @@ func loadExistingRework(r *repo.Repo) (reworkState, error) {
 		return reworkState{}, errors.New("failed to lookup rework head")
 	}
 	return reworkState{branch: branch, head: head}, nil
-}
-
-func checkExistingRework(r *repo.Repo) (bool, error) {
-	if s, err := r.LookupKiltRef("rework/branch"); err != nil {
-		return false, err
-	} else if s != "" {
-		return true, nil
-	}
-	if s, err := r.LookupKiltRef("rework/head"); err != nil {
-		return false, err
-	} else if s != "" {
-		return true, nil
-	}
-	return false, nil
 }

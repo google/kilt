@@ -26,9 +26,11 @@ import (
 
 // Patchset represents a patchset
 type Patchset struct {
-	name    string
-	uuid    uuid.UUID
-	version Version
+	name              string
+	uuid              uuid.UUID
+	version           Version
+	metadata          string
+	patches, floating []string
 }
 
 // Version wraps a patchset version number
@@ -128,4 +130,34 @@ func (p Patchset) SameVersion(p2 *Patchset) bool {
 // Equal checks whether two patchsets are completely equal.
 func (p *Patchset) Equal(p2 *Patchset) bool {
 	return p.name == p2.name && p.SameVersion(p2)
+}
+
+// MetadataCommit returns the commit id of the metadata commit of the patchset.
+func (p Patchset) MetadataCommit() string {
+	return p.metadata
+}
+
+// AddMetadataCommit will set the metadatacommit to the given commit id.
+func (p *Patchset) AddMetadataCommit(metadata string) {
+	p.metadata = metadata
+}
+
+// Patches will return a list of patches in the patchset.
+func (p Patchset) Patches() []string {
+	return p.patches
+}
+
+// AddPatch will add the patch to the list of patches in the patchset.
+func (p *Patchset) AddPatch(patch string) {
+	p.patches = append(p.patches, patch)
+}
+
+// FloatingPatches will return a list of floating patches belonging to the patchset.
+func (p Patchset) FloatingPatches() []string {
+	return p.floating
+}
+
+// AddFloatingPatch adds the patch to the list of floating patches belonging to the patchset.
+func (p *Patchset) AddFloatingPatch(patch string) {
+	p.floating = append(p.floating, patch)
 }

@@ -167,13 +167,13 @@ func (d *StructGraph) UnmarshalJSON(b []byte) error {
 	return d.load(f)
 }
 
-// checkOrder verifies that dep does not precede ps in the patchset list.
+// checkOrder verifies that dep comes before ps in the patchset list.
 func (d *StructGraph) checkOrder(ps, dep *patchset.Patchset) bool {
 	for _, p := range d.patchsets {
-		if p.SameAs(ps) {
+		if p.SameAs(dep) {
 			return true
 		}
-		if p.SameAs(dep) {
+		if p.SameAs(ps) {
 			return false
 		}
 	}

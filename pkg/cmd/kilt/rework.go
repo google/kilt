@@ -45,10 +45,12 @@ diff between them is empty.`,
 }
 
 var reworkFlags = struct {
-	begin    bool
-	finish   bool
-	validate bool
-	force    bool
+	begin     bool
+	finish    bool
+	validate  bool
+	force     bool
+	patchsets []string
+	all       bool
 }{}
 
 func init() {
@@ -58,6 +60,8 @@ func init() {
 	reworkCmd.Flags().BoolVar(&reworkFlags.finish, "finish", false, "validate and finish rework")
 	reworkCmd.Flags().BoolVarP(&reworkFlags.force, "force", "f", false, "when finishing, force finish rework, regardless of validation")
 	reworkCmd.Flags().BoolVar(&reworkFlags.validate, "validate", false, "validate rework")
+	reworkCmd.Flags().BoolVarP(&reworkFlags.all, "all", "a", false, "specify all patchsets for rework")
+	reworkCmd.Flags().StringSliceVarP(&reworkFlags.patchsets, "patchset", "p", nil, "specify individual patchset for rework")
 }
 
 func argsRework(*cobra.Command, []string) error {
@@ -73,7 +77,15 @@ func runRework(cmd *cobra.Command, args []string) {
 	case reworkFlags.validate:
 		c, err = rework.NewValidateCommand()
 	case reworkFlags.begin:
-		c, err = rework.NewBeginCommand()
+		targets := []rework.TargetSelector{rework.FloatingTargets{}}
+		if reworkFlags.all {
+			targets = append(targets, rework.AllTargets{})
+		} else if len(reworkFlags.patchsets) > 0 {
+			for _, p := range reworkFlags.patchsets {
+				targets = append(targets, rework.PatchsetTarget{Name: p})
+			}
+		}
+		c, err = rework.NewBeginCommand(targets...)
 	default:
 		log.Exitf("No operation specified")
 	}

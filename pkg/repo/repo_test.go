@@ -62,7 +62,22 @@ func setupRepo(t *testing.T, name string) *git.Repository {
 	if err != nil {
 		t.Fatalf("DefaultSignature(): %v", err)
 	}
-	repo.CreateCommit("HEAD", sig, sig, "Initial commit.", tree)
+	oid, err = repo.CreateCommit("HEAD", sig, sig, "Initial commit.", tree)
+	if err != nil {
+		t.Fatalf("CreateCommit(): %v", err)
+	}
+	commit, err := repo.LookupCommit(oid)
+	if err != nil {
+		t.Fatalf("LookupCommit(): %v", err)
+	}
+	branch, err := repo.CreateBranch("test", commit, false)
+	if err != nil {
+		t.Fatalf("CreateBranch(): %v", err)
+	}
+	err = repo.SetHead(branch.Reference.Name())
+	if err != nil {
+		t.Fatalf("SetHead(): %v", err)
+	}
 
 	return repo
 }
@@ -78,7 +93,7 @@ func cleanupRepo(t *testing.T, repo *git.Repository) {
 func TestCreateMetadataCommit(t *testing.T) {
 	r := setupRepo(t, "CreateMetadataCommit")
 	defer cleanupRepo(t, r)
-	g := newWithGitRepo(r, "")
+	g := newWithGitRepo(r, "", "test", "test")
 	ref, err := g.git.Head()
 	if err != nil {
 		t.Fatalf("Head(): %v", err)
@@ -113,7 +128,7 @@ func TestFindPatchset(t *testing.T) {
 	base := headCommit.Id().String()
 	defer cleanupRepo(t, r)
 
-	g := newWithGitRepo(r, base)
+	g := newWithGitRepo(r, base, "test", "test")
 
 	patchsets := []string{"a", "b", "c"}
 	tests := []struct {

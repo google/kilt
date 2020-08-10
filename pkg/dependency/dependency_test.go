@@ -30,7 +30,7 @@ func TestAdd(t *testing.T) {
 	c := patchset.New("c")
 	d := patchset.New("d")
 	e := patchset.New("e")
-	patchsets := []*patchset.Patchset{a, b, c}
+	patchsets := []*patchset.Patchset{c, b, a}
 	tests := []struct {
 		desc     string
 		patchset *patchset.Patchset
@@ -185,7 +185,7 @@ func TestValidate(t *testing.T) {
 	a := patchset.New("a")
 	b := patchset.New("b")
 	c := patchset.New("c")
-	patchsets := []*patchset.Patchset{a, b, c}
+	patchsets := []*patchset.Patchset{c, b, a}
 	tests := []struct {
 		json  []byte
 		valid bool

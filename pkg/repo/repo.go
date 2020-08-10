@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -34,6 +35,8 @@ import (
 type Repo struct {
 	git         *git.Repository
 	base        string
+	branch      string
+	head        string
 	patchsets   []*patchset.Patchset
 	patchsetMap map[string]*patchset.Patchset
 }
@@ -51,10 +54,12 @@ var (
 	fieldsRegexp = regexp.MustCompile("^([-[:alnum:]]+):[[:space:]]?(.*)$")
 )
 
-func newWithGitRepo(git *git.Repository, base string) *Repo {
+func newWithGitRepo(git *git.Repository, base, branch, head string) *Repo {
 	return &Repo{
-		git:  git,
-		base: base,
+		git:    git,
+		base:   base,
+		branch: branch,
+		head:   head,
 	}
 }
 
@@ -64,15 +69,22 @@ func Open() (*Repo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open repo: %w", err)
 	}
-	baseRefPath, err := baseRef(g)
+	branch, err := findKiltBranch(g)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate base ref: %w", err)
+		return nil, fmt.Errorf("failed to find kilt branch: %w", err)
 	}
+	head := branch
+	if inProgress, err := checkRework(g); err != nil {
+		return nil, err
+	} else if inProgress {
+		head = "refs/kilt/rework/head"
+	}
+	baseRefPath := baseRef(branch)
 	base, err := g.References.Lookup(baseRefPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to lookup base: %w", err)
 	}
-	return newWithGitRepo(g, base.Target().String()), nil
+	return newWithGitRepo(g, base.Target().String(), branch, head), nil
 }
 
 // Init initializes kilt in the current branch.
@@ -85,14 +97,16 @@ func Init(base string) (*Repo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse base %q: %w", base, err)
 	}
-	baseRefPath, err := baseRef(g)
+	branch, err := findKiltBranch(g)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate base ref: %w", err)
+		return nil, fmt.Errorf("failed to find kilt branch: %w", err)
 	}
+	head := branch
+	baseRefPath := baseRef(branch)
 	if _, err := g.References.Create(baseRefPath, obj.Id(), false, fmt.Sprintf("Creating kilt base reference %s", baseRefPath)); err != nil {
 		return nil, fmt.Errorf("failed to create ref: %w", err)
 	}
-	return newWithGitRepo(g, base), nil
+	return newWithGitRepo(g, base, branch, head), nil
 }
 
 // LookupKiltRef will lookup the specified ref name under the kilt ref path.
@@ -112,7 +126,29 @@ func (r *Repo) LookupKiltRef(name string) (string, error) {
 	return ref.Name(), nil
 }
 
-func baseRef(g *git.Repository) (string, error) {
+// ReworkInProgress checks whether there is currently a rework operation in progress.
+func (r *Repo) ReworkInProgress() (bool, error) {
+	return checkRework(r.git)
+}
+
+func checkRework(g *git.Repository) (bool, error) {
+	p := path.Join(refPath, "rework/branch")
+	ref, err := g.References.Lookup(p)
+	if git.IsErrorCode(err, git.ErrNotFound) {
+		return false, nil
+	} else if err != nil {
+		return false, fmt.Errorf("failed to lookup rework branch: %w", err)
+	}
+	ref, err = ref.Resolve()
+	if err != nil {
+		return false, fmt.Errorf("failed to resolve ref: %w", err)
+	} else if ref.Name() != "" {
+		return true, nil
+	}
+	return false, nil
+}
+
+func findKiltBranch(g *git.Repository) (string, error) {
 	var branchName string
 	if detached, err := g.IsHeadDetached(); err != nil {
 		return "", fmt.Errorf("failed while checking detached head: %w", err)
@@ -128,8 +164,7 @@ func baseRef(g *git.Repository) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("failed to resolve reference: %w", err)
 		}
-		branchName, err = branchRef.Branch().Name()
-		if err != nil {
+		if branchName, err = branchRef.Branch().Name(); err != nil {
 			return "", fmt.Errorf("failed to get branch name: %w", err)
 		}
 	} else {
@@ -137,21 +172,19 @@ func baseRef(g *git.Repository) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("failed to read head: %w", err)
 		}
-		branchName, err = head.Branch().Name()
-		if err != nil {
+		if branchName, err = head.Branch().Name(); err != nil {
 			return "", fmt.Errorf("failed to get current branch name: %w", err)
 		}
 	}
-	return path.Join(refPath, branchName, "base"), nil
+	return branchName, nil
+}
+
+func baseRef(branch string) string {
+	return path.Join(refPath, branch, "base")
 }
 
 // WriteRefHead will write the current head to the specified kilt ref.
 func (r *Repo) WriteRefHead(name string) error {
-	if detached, err := r.git.IsHeadDetached(); err != nil {
-		return fmt.Errorf("failed while checking detached head: %w", err)
-	} else if detached {
-		return errors.New("must not be on a detached head")
-	}
 	ref, err := r.git.Head()
 	if err != nil {
 		return fmt.Errorf("failed to lookup head: %w", err)
@@ -161,7 +194,7 @@ func (r *Repo) WriteRefHead(name string) error {
 		return fmt.Errorf("failed to get commit object: %w", err)
 	}
 	refName := path.Join(refPath, name)
-	if _, err = r.git.References.Create(refName, obj.Id(), false, "Updating kilt rework reference"); err != nil {
+	if _, err = r.git.References.Create(refName, obj.Id(), true, "Updating kilt rework reference"); err != nil {
 		return fmt.Errorf("failed to create ref %q: %w", refName, err)
 	}
 	return nil
@@ -217,6 +250,58 @@ func (r *Repo) SetIndirectBranchToHead(name string) error {
 	}
 	_, err = ref.SetTarget(head.Target(), "Finishing rework")
 	return err
+}
+
+// KiltDirectory returns a full path to the kilt subdirectory of the .git directory.
+func (r *Repo) KiltDirectory() string {
+	return filepath.Join(r.git.Path(), "kilt")
+}
+
+func (r *Repo) checkoutRev(rev string) error {
+	obj, err := r.git.RevparseSingle(rev)
+	if err != nil {
+		return err
+	}
+	treeObj, err := obj.Peel(git.ObjectTree)
+	if err != nil {
+		return err
+	}
+	tree, err := treeObj.AsTree()
+	if err != nil {
+		return err
+	}
+	if err := r.git.CheckoutTree(tree, &git.CheckoutOpts{Strategy: git.CheckoutSafe}); err != nil {
+		return err
+	}
+	if err := r.git.SetHeadDetached(obj.Id()); err != nil {
+		return err
+	}
+	return r.git.StateCleanup()
+}
+
+// CheckoutBase will checkout the kilt base rev.
+func (r *Repo) CheckoutBase() error {
+	return r.checkoutRev(r.base)
+}
+
+// CheckoutPatchset will checkout the latest patch in the given patchset.
+func (r *Repo) CheckoutPatchset(patchset string) error {
+	patchsets, err := r.PatchsetMap()
+	if err != nil {
+		return err
+	}
+	p, ok := patchsets[patchset]
+	if !ok {
+		return fmt.Errorf("checkout: patchset %q not found", patchset)
+	}
+	patches := p.Patches()
+	var id string
+	if len(patches) == 0 {
+		id = p.MetadataCommit()
+	} else {
+		id = patches[len(patches)-1]
+	}
+	return r.checkoutRev(id)
 }
 
 // AddPatchset will add the given patchset to the head of the repo
@@ -363,9 +448,17 @@ func (r *Repo) PatchsetMap() (map[string]*patchset.Patchset, error) {
 }
 
 func (r *Repo) walkPatchsets() error {
-	head, err := r.git.Head()
-	if err != nil {
+	branch, err := r.git.LookupBranch(r.head, git.BranchLocal)
+	var head *git.Reference
+	if git.IsErrorCode(err, git.ErrNotFound) {
+		head, err = r.git.References.Lookup(r.head)
+		if err != nil {
+			return err
+		}
+	} else if err != nil {
 		return err
+	} else {
+		head = branch.Reference
 	}
 	headCommit, err := head.Peel(git.ObjectCommit)
 	if err != nil {
@@ -377,7 +470,7 @@ func (r *Repo) walkPatchsets() error {
 	}
 	defer revWalk.Free()
 
-	revWalk.Sorting(git.SortTopological | git.SortTime)
+	revWalk.Sorting(git.SortTopological | git.SortTime | git.SortReverse)
 
 	if err := revWalk.Push(headCommit.Id()); err != nil {
 		return err
@@ -395,6 +488,7 @@ func (r *Repo) walkPatchsets() error {
 	var oid git.Oid
 	var patchsets []*patchset.Patchset
 	patchsetMap := map[string]*patchset.Patchset{}
+	var currentPatchset *patchset.Patchset
 	for {
 		if err := revWalk.Next(&oid); err != nil {
 			break
@@ -423,8 +517,30 @@ func (r *Repo) walkPatchsets() error {
 				log.Warningf("Patchset %q seen twice", patchset.Name())
 				continue
 			}
+			patchset.AddMetadataCommit(c.Id().String())
 			patchsets = append(patchsets, patchset)
 			patchsetMap[patchset.Name()] = patchset
+			currentPatchset = patchset
+		} else {
+			fields := parseFields(c.Message())
+			name, ok := fields[patchsetNameField]
+			if !ok {
+				name = "unknown"
+			}
+			if currentPatchset != nil && (name == currentPatchset.Name() || name == "unknown") {
+				currentPatchset.AddPatch(c.Id().String())
+			} else {
+				currentPatchset = nil
+				if p, ok := patchsetMap[name]; ok {
+					p.AddFloatingPatch(c.Id().String())
+				} else {
+					log.Warningf("Patch %q belongs to patchset %q which hasn't been seen yet", c.Id().String(), name)
+					p := patchset.New(name)
+					p.AddFloatingPatch(c.Id().String())
+					patchsets = append(patchsets, p)
+					patchsetMap[p.Name()] = p
+				}
+			}
 		}
 	}
 	r.patchsets = patchsets
