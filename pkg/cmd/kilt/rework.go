@@ -53,6 +53,7 @@ var reworkFlags = struct {
 	patchsets []string
 	all       bool
 	rContinue bool
+	abort     bool
 }{}
 
 func init() {
@@ -60,6 +61,7 @@ func init() {
 	reworkCmd.Flags().BoolVar(&reworkFlags.begin, "begin", true, "begin rework")
 	reworkCmd.Flags().MarkHidden("begin")
 	reworkCmd.Flags().BoolVar(&reworkFlags.finish, "finish", false, "validate and finish rework")
+	reworkCmd.Flags().BoolVar(&reworkFlags.abort, "abort", false, "abort rework")
 	reworkCmd.Flags().BoolVarP(&reworkFlags.force, "force", "f", false, "when finishing, force finish rework, regardless of validation")
 	reworkCmd.Flags().BoolVar(&reworkFlags.validate, "validate", false, "validate rework")
 	reworkCmd.Flags().BoolVar(&reworkFlags.rContinue, "continue", false, "continue rework")
@@ -79,6 +81,8 @@ func runRework(cmd *cobra.Command, args []string) {
 	case reworkFlags.finish:
 		reworkFlags.auto = true
 		c, err = rework.NewFinishCommand(reworkFlags.force)
+	case reworkFlags.abort:
+		c, err = rework.NewAbortCommand()
 	case reworkFlags.validate:
 		c, err = rework.NewValidateCommand()
 	case reworkFlags.rContinue:

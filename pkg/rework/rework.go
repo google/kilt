@@ -281,6 +281,12 @@ func registerOperations(e *queue.Executor, r *repo.Repo) {
 			},
 		},
 		{
+			Name: "Abort",
+			Execute: func(_ []string) error {
+				return abortRework(r)
+			},
+		},
+		{
 			Name: "Begin",
 			Execute: func(_ []string) error {
 				return startNewRework(r)
@@ -435,6 +441,35 @@ func finishRework(r *repo.Repo) error {
 	if err := r.SetIndirectBranchToHead("rework/branch"); err != nil {
 		return err
 	}
+	if err := r.CheckoutIndirectBranch("rework/branch"); err != nil {
+		return err
+	}
+	cleanupReworkState(r)
+	return nil
+}
+
+// NewAbortCommand returns a command that aborts an in-progress rework.
+func NewAbortCommand() (*Command, error) {
+	c, err := NewCommand()
+	if err != nil {
+		return nil, err
+	}
+	s := newStateFile(c.repo, "queue")
+
+	c.setWriter(s)
+	if exists, err := c.repo.ReworkInProgress(); err != nil {
+		return nil, err
+	} else if !exists {
+		return nil, fmt.Errorf("no rework in progress")
+	}
+	registerOperations(&c.executor, c.repo)
+	if err = c.executor.Enqueue("Abort"); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+func abortRework(r *repo.Repo) error {
 	if err := r.CheckoutIndirectBranch("rework/branch"); err != nil {
 		return err
 	}
