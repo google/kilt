@@ -620,6 +620,23 @@ func (r *Repo) walkPatchsets() error {
 	return nil
 }
 
+// DescribeCommit returns a short ID and description for the commit.
+func (r *Repo) DescribeCommit(id string) (string, error) {
+	obj, err := r.git.RevparseSingle(id)
+	if err != nil {
+		return "", err
+	}
+	commit, err := obj.AsCommit()
+	if err != nil {
+		return "", err
+	}
+	shortID, err := commit.ShortId()
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s %s", shortID, commit.Summary()), nil
+}
+
 func patchsetFromMetadata(metadata string) (*patchset.Patchset, error) {
 	fields := parseFields(metadata)
 	name, ok := fields[patchsetNameField]

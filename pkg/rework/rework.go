@@ -368,7 +368,11 @@ func registerReworkOperations(e *queue.Executor, r *repo.Repo) {
 		{
 			Name: "Apply",
 			Execute: func(patch []string) error {
-				fmt.Printf("Applying %s\n", patch[0])
+				desc, err := r.DescribeCommit(patch[0])
+				if err != nil {
+					return err
+				}
+				fmt.Printf("Applying %s\n", desc)
 				return r.CherryPickToHead(patch[0])
 			},
 			Resumable: true,
@@ -376,7 +380,11 @@ func registerReworkOperations(e *queue.Executor, r *repo.Repo) {
 		{
 			Name: "Cherrypick",
 			Execute: func(patch []string) error {
-				fmt.Printf("Cherrypick %s\n", patch[0])
+				desc, err := r.DescribeCommit(patch[0])
+				if err != nil {
+					return err
+				}
+				fmt.Printf("Cherrypick %s\n", desc)
 				return r.CherryPickToHead(patch[0])
 			},
 			Resumable: true,
@@ -384,7 +392,11 @@ func registerReworkOperations(e *queue.Executor, r *repo.Repo) {
 		{
 			Name: "UpdateMetadata",
 			Execute: func(patch []string) error {
-				fmt.Printf("Updating metadata %s\n", patch[0])
+				desc, err := r.DescribeCommit(patch[0])
+				if err != nil {
+					return err
+				}
+				fmt.Printf("Updating metadata %s\n", desc)
 				return r.UpdateMetadataForCommit(patch[0])
 			},
 			Resumable: true,
