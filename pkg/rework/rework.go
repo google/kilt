@@ -20,6 +20,9 @@ package rework
 import (
 	"errors"
 	"fmt"
+	"io/ioutil"
+	"os"
+	"path/filepath"
 
 	log "github.com/golang/glog"
 	"github.com/google/kilt/pkg/patchset"
@@ -31,6 +34,8 @@ import (
 type Command struct {
 	repo     *repo.Repo
 	executor queue.Executor
+	writer   stateWriter
+	reader   stateReader
 }
 
 // NewCommand opens the repo and returns a new rework command.
@@ -40,20 +45,169 @@ func NewCommand() (*Command, error) {
 		return nil, fmt.Errorf("failed to initialize rework: %w", err)
 	}
 	e := queue.NewExecutor()
-	return &Command{repo: r, executor: e}, nil
+	var state *stateFile
+	return &Command{
+		repo:     r,
+		executor: e,
+		writer:   state,
+		reader:   state,
+	}, nil
+}
+
+func (c *Command) setWriter(w stateWriter) {
+	c.writer = w
+}
+
+func (c *Command) setReader(r stateReader) {
+	c.reader = r
 }
 
 // Save will marshal and save the command. Currently a placeholder that just prints it.
-func (c Command) Save() {
-	q, err := c.executor.MarshalQueue()
-	if err == nil {
-		fmt.Println(string(q))
-	}
+func (c *Command) Save() error {
+	return c.writer.WriteQueueState(c.executor.Queue())
 }
 
 // Execute will execute the command, running an queued operations.
 func (c *Command) Execute() error {
-	return c.executor.ExecuteAll()
+	item := c.executor.Peek()
+	if item != nil && c.executor.Resumable(item.Operation) {
+		if err := c.writer.WriteCurrentState(*item); err != nil {
+			return err
+		}
+	}
+	err := c.executor.Execute()
+	if err == nil {
+		return c.writer.ClearCurrentState()
+	}
+	return err
+}
+
+// ExecuteAll will execute all queued operations, stopping if an error occurs.
+func (c *Command) ExecuteAll() error {
+	var err error
+	for err = c.Execute(); err == nil; err = c.Execute() {
+	}
+	if err == queue.ErrEmpty {
+		return nil
+	}
+	return err
+}
+
+// stateWriter manages the writing and removal of operation states.
+type stateWriter interface {
+	WriteQueueState(queue queue.Queue) error
+	WriteCurrentState(item queue.Item) error
+	ClearQueueState() error
+	ClearCurrentState() error
+}
+
+// stateReader manages the reading of operation states.
+type stateReader interface {
+	ReadState() (queue.Queue, error)
+	ReadCurrentState() (queue.Queue, error)
+}
+
+type stateFile struct {
+	path, name string
+}
+
+// ReadState will read the operation queue, returning a new Queue.
+func (s *stateFile) ReadState() (queue.Queue, error) {
+	var q queue.Queue
+	if s == nil {
+		return q, nil
+	}
+	var e *os.PathError
+	file, err := ioutil.ReadFile(filepath.Join(s.path, s.name))
+	if errors.As(err, &e) {
+		return q, nil
+	} else if err != nil {
+		return q, err
+	}
+	err = q.UnmarshalText(file)
+	if err != nil {
+		return q, err
+	}
+	return q, nil
+}
+
+// ReadState will read the current operation, returning a new Queue.
+func (s *stateFile) ReadCurrentState() (queue.Queue, error) {
+	var item queue.Item
+	var queue queue.Queue
+	if s == nil {
+		return queue, nil
+	}
+	file, err := ioutil.ReadFile(filepath.Join(s.path, s.name+"-current"))
+	var e *os.PathError
+	if err != nil && !errors.As(err, &e) {
+		return queue, err
+	}
+	if len(file) == 0 {
+		return queue, nil
+	}
+	err = item.UnmarshalText(file)
+	if err != nil {
+		return queue, err
+	}
+	if item.Operation == "" {
+		return queue, nil
+	}
+	queue.Items = append(queue.Items, item)
+	return queue, nil
+}
+
+// WriteCurrentState will write the current item to a state file.
+func (s *stateFile) WriteCurrentState(item queue.Item) error {
+	if s == nil {
+		return nil
+	}
+	if item.Operation == "" {
+		return s.ClearCurrentState()
+	}
+	os.MkdirAll(s.path, 0777)
+	currentFile := filepath.Join(s.path, s.name+"-current")
+	text, err := item.MarshalText()
+	if err != nil {
+		return err
+	}
+	return ioutil.WriteFile(currentFile, text, 0666)
+}
+
+// WriteQueueState will marshal and write the queue to a state file.
+func (s *stateFile) WriteQueueState(queue queue.Queue) error {
+	if s == nil {
+		return nil
+	}
+	if len(queue.Items) == 0 {
+		return s.ClearQueueState()
+	}
+	os.MkdirAll(s.path, 0777)
+	q, err := queue.MarshalText()
+	if err != nil {
+		return fmt.Errorf("failed to marshal queue: %v", err)
+	}
+	queueFile := filepath.Join(s.path, s.name)
+	fmt.Print(string(q))
+	return ioutil.WriteFile(queueFile, q, 0666)
+}
+
+// ClearCurrentState will remove the current operation state file.
+func (s *stateFile) ClearCurrentState() error {
+	if s == nil {
+		return nil
+	}
+	queueFile := filepath.Join(s.path, s.name)
+	return os.RemoveAll(queueFile + "-current")
+}
+
+// ClearCurrentState will remove the queue state file.
+func (s *stateFile) ClearQueueState() error {
+	if s == nil {
+		return nil
+	}
+	queueFile := filepath.Join(s.path, s.name)
+	return os.RemoveAll(queueFile)
 }
 
 // TargetSelector selects patchsets based on some criteria.
@@ -194,10 +348,24 @@ func NewBeginCommand(selectors ...TargetSelector) (*Command, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	s := newStateFile(c.repo, "queue")
+
+	c.setWriter(s)
+	c.setReader(s)
+
 	registerOperations(&c.executor, c.repo)
 
-	if err = c.executor.Enqueue("Begin"); err != nil {
+	if exists, err := c.repo.ReworkInProgress(); err != nil {
 		return nil, err
+	} else if exists {
+		if q, err := c.reader.ReadState(); err == nil && len(q.Items) > 0 {
+			return nil, fmt.Errorf("rework already in progress")
+		}
+	} else {
+		if err = c.executor.Enqueue("Begin"); err != nil {
+			return nil, err
+		}
 	}
 	patchsets, err := c.repo.Patchsets()
 	if err != nil {
@@ -231,11 +399,6 @@ func NewBeginCommand(selectors ...TargetSelector) (*Command, error) {
 }
 
 func startNewRework(r *repo.Repo) error {
-	if exists, err := r.ReworkInProgress(); err != nil {
-		return err
-	} else if exists {
-		return fmt.Errorf("rework already in progress")
-	}
 	if err := r.WriteRefHead("rework/head"); err != nil {
 		return err
 	}
@@ -251,6 +414,11 @@ func NewFinishCommand(force bool) (*Command, error) {
 	if err != nil {
 		return nil, err
 	}
+	if exists, err := c.repo.ReworkInProgress(); err != nil {
+		return nil, err
+	} else if !exists {
+		return nil, fmt.Errorf("no rework in progress")
+	}
 	registerOperations(&c.executor, c.repo)
 	if !force {
 		if err = c.executor.Enqueue("Validate"); err != nil {
@@ -264,11 +432,6 @@ func NewFinishCommand(force bool) (*Command, error) {
 }
 
 func finishRework(r *repo.Repo) error {
-	if exists, err := r.ReworkInProgress(); err != nil {
-		return err
-	} else if !exists {
-		return fmt.Errorf("no rework in progress")
-	}
 	if err := r.SetIndirectBranchToHead("rework/branch"); err != nil {
 		return err
 	}
@@ -294,6 +457,11 @@ func NewValidateCommand() (*Command, error) {
 	if err != nil {
 		return nil, err
 	}
+	if exists, err := c.repo.ReworkInProgress(); err != nil {
+		return nil, err
+	} else if !exists {
+		return nil, fmt.Errorf("no rework in progress")
+	}
 	registerOperations(&c.executor, c.repo)
 	if err = c.executor.Enqueue("Validate"); err != nil {
 		return nil, err
@@ -302,12 +470,54 @@ func NewValidateCommand() (*Command, error) {
 }
 
 func validateRework(r *repo.Repo) (bool, error) {
-	if exists, err := r.ReworkInProgress(); err != nil {
-		return false, err
-	} else if !exists {
-		return false, fmt.Errorf("no rework in progress")
-	}
 	return r.CompareTreeToHead("rework/branch")
+}
+
+func newStateFile(r *repo.Repo, name string) *stateFile {
+	return &stateFile{
+		path: filepath.Join(r.KiltDirectory(), "rework"),
+		name: name,
+	}
+}
+
+// NewContinueCommand returns a command that continues with saved rework steps.
+func NewContinueCommand() (*Command, error) {
+	c, err := NewCommand()
+	if err != nil {
+		return nil, err
+	}
+
+	state := newStateFile(c.repo, "queue")
+	c.setWriter(state)
+	c.setReader(state)
+
+	if exists, err := c.repo.ReworkInProgress(); err != nil {
+		return nil, err
+	} else if !exists {
+		return nil, fmt.Errorf("no rework in progress")
+	}
+
+	registerOperations(&c.executor, c.repo)
+
+	if err = continueRework(c); err != nil {
+		return nil, err
+	}
+
+	return c, nil
+}
+
+func continueRework(c *Command) error {
+	if exists, err := c.repo.ReworkInProgress(); err != nil {
+		return err
+	} else if !exists {
+		return fmt.Errorf("no rework in progress")
+	}
+	q, err := c.reader.ReadState()
+	if err != nil {
+		return err
+	}
+	c.executor.LoadQueue(q)
+	return nil
 }
 
 func reworkPatchset(r *repo.Repo, patchset string) error {
@@ -323,21 +533,43 @@ func reworkPatchset(r *repo.Repo, patchset string) error {
 	if err != nil {
 		return err
 	}
+	state := newStateFile(r, "reworkQueue")
+	c.setWriter(state)
+	c.setReader(state)
 
 	registerReworkOperations(&c.executor, c.repo)
 
-	if p.MetadataCommit() == "" {
-		c.executor.Enqueue("CreateMetadata", p.Name())
-	} else {
-		c.executor.Enqueue("UpdateMetadata", p.MetadataCommit())
+	current, err := c.reader.ReadCurrentState()
+	if err != nil {
+		return err
 	}
-	for _, patch := range p.Patches() {
-		c.executor.Enqueue("Apply", patch)
+	q, err := c.reader.ReadState()
+	if err != nil {
+		return err
 	}
-	for _, patch := range p.FloatingPatches() {
-		c.executor.Enqueue("Cherrypick", patch)
+	c.executor.LoadQueue(q)
+
+	if len(q.Items) == 0 && len(current.Items) == 0 {
+		if p.MetadataCommit() == "" {
+			c.executor.Enqueue("CreateMetadata", p.Name())
+		} else {
+			c.executor.Enqueue("UpdateMetadata", p.MetadataCommit())
+		}
+
+		for _, patch := range p.Patches() {
+			c.executor.Enqueue("Apply", patch)
+		}
+		for _, patch := range p.FloatingPatches() {
+			c.executor.Enqueue("Cherrypick", patch)
+		}
 	}
-	return c.Execute()
+	if err = c.ExecuteAll(); err != nil {
+		if saveErr := c.Save(); saveErr != nil {
+			return fmt.Errorf("failed to save queue: %v; during error: %v", saveErr, err)
+		}
+		return err
+	}
+	return nil
 }
 
 func applyPatchset(r *repo.Repo, patchset string) error {
@@ -353,14 +585,35 @@ func applyPatchset(r *repo.Repo, patchset string) error {
 	if err != nil {
 		return err
 	}
+	state := newStateFile(r, "reworkQueue")
+	c.setWriter(state)
+	c.setReader(state)
 
 	registerReworkOperations(&c.executor, c.repo)
 
-	c.executor.Enqueue("Apply", p.MetadataCommit())
-	for _, patch := range p.Patches() {
-		c.executor.Enqueue("Apply", patch)
+	current, err := c.reader.ReadCurrentState()
+	if err != nil {
+		return err
 	}
-	return c.Execute()
+	q, err := c.reader.ReadState()
+	if err != nil {
+		return err
+	}
+	c.executor.LoadQueue(q)
+
+	if len(q.Items) == 0 && len(current.Items) == 0 {
+		c.executor.Enqueue("Apply", p.MetadataCommit())
+		for _, patch := range p.Patches() {
+			c.executor.Enqueue("Apply", patch)
+		}
+	}
+	if err = c.ExecuteAll(); err != nil {
+		if saveErr := c.Save(); saveErr != nil {
+			return fmt.Errorf("failed to save queue: %v; during error: %v", saveErr, err)
+		}
+		return err
+	}
+	return nil
 }
 
 func registerReworkOperations(e *queue.Executor, r *repo.Repo) {

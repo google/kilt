@@ -49,8 +49,10 @@ var reworkFlags = struct {
 	finish    bool
 	validate  bool
 	force     bool
+	auto      bool
 	patchsets []string
 	all       bool
+	rContinue bool
 }{}
 
 func init() {
@@ -60,6 +62,8 @@ func init() {
 	reworkCmd.Flags().BoolVar(&reworkFlags.finish, "finish", false, "validate and finish rework")
 	reworkCmd.Flags().BoolVarP(&reworkFlags.force, "force", "f", false, "when finishing, force finish rework, regardless of validation")
 	reworkCmd.Flags().BoolVar(&reworkFlags.validate, "validate", false, "validate rework")
+	reworkCmd.Flags().BoolVar(&reworkFlags.rContinue, "continue", false, "continue rework")
+	reworkCmd.Flags().BoolVar(&reworkFlags.auto, "auto", false, "attempt to automatically complete rework")
 	reworkCmd.Flags().BoolVarP(&reworkFlags.all, "all", "a", false, "specify all patchsets for rework")
 	reworkCmd.Flags().StringSliceVarP(&reworkFlags.patchsets, "patchset", "p", nil, "specify individual patchset for rework")
 }
@@ -73,9 +77,12 @@ func runRework(cmd *cobra.Command, args []string) {
 	var err error
 	switch {
 	case reworkFlags.finish:
+		reworkFlags.auto = true
 		c, err = rework.NewFinishCommand(reworkFlags.force)
 	case reworkFlags.validate:
 		c, err = rework.NewValidateCommand()
+	case reworkFlags.rContinue:
+		c, err = rework.NewContinueCommand()
 	case reworkFlags.begin:
 		targets := []rework.TargetSelector{rework.FloatingTargets{}}
 		if reworkFlags.all {
@@ -92,7 +99,15 @@ func runRework(cmd *cobra.Command, args []string) {
 	if err != nil {
 		log.Exitf("Rework failed: %v", err)
 	}
-	if err = c.Execute(); err != nil {
-		log.Exitf("Rework failed: %v", err)
+	if reworkFlags.auto {
+		err = c.ExecuteAll()
+	} else {
+		err = c.Execute()
+	}
+	if err != nil {
+		log.Errorf("Rework failed: %v", err)
+	}
+	if err = c.Save(); err != nil {
+		log.Exitf("Failed to save rework state: %v", err)
 	}
 }
