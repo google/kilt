@@ -48,12 +48,13 @@ var reworkFlags = struct {
 	begin     bool
 	finish    bool
 	validate  bool
+	rContinue bool
+	abort     bool
+	skip      bool
 	force     bool
 	auto      bool
 	patchsets []string
 	all       bool
-	rContinue bool
-	abort     bool
 }{}
 
 func init() {
@@ -65,6 +66,7 @@ func init() {
 	reworkCmd.Flags().BoolVarP(&reworkFlags.force, "force", "f", false, "when finishing, force finish rework, regardless of validation")
 	reworkCmd.Flags().BoolVar(&reworkFlags.validate, "validate", false, "validate rework")
 	reworkCmd.Flags().BoolVar(&reworkFlags.rContinue, "continue", false, "continue rework")
+	reworkCmd.Flags().BoolVar(&reworkFlags.skip, "skip", false, "skip rework step")
 	reworkCmd.Flags().BoolVar(&reworkFlags.auto, "auto", false, "attempt to automatically complete rework")
 	reworkCmd.Flags().BoolVarP(&reworkFlags.all, "all", "a", false, "specify all patchsets for rework")
 	reworkCmd.Flags().StringSliceVarP(&reworkFlags.patchsets, "patchset", "p", nil, "specify individual patchset for rework")
@@ -83,6 +85,8 @@ func runRework(cmd *cobra.Command, args []string) {
 		c, err = rework.NewFinishCommand(reworkFlags.force)
 	case reworkFlags.abort:
 		c, err = rework.NewAbortCommand()
+	case reworkFlags.skip:
+		c, err = rework.NewSkipCommand()
 	case reworkFlags.validate:
 		c, err = rework.NewValidateCommand()
 	case reworkFlags.rContinue:

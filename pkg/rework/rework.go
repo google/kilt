@@ -188,7 +188,6 @@ func (s *stateFile) WriteQueueState(queue queue.Queue) error {
 		return fmt.Errorf("failed to marshal queue: %v", err)
 	}
 	queueFile := filepath.Join(s.path, s.name)
-	fmt.Print(string(q))
 	return ioutil.WriteFile(queueFile, q, 0666)
 }
 
@@ -300,6 +299,14 @@ func registerOperations(e *queue.Executor, r *repo.Repo) {
 				}
 				fmt.Printf("Reworking patchset %s\n", patchset[0])
 				return reworkPatchset(r, patchset[0])
+			},
+			Resumable: true,
+		},
+		{
+			Name: "Skip",
+			Execute: func([]string) error {
+				fmt.Println("Clearing queue")
+				return skipReworkQueue(r)
 			},
 			Resumable: true,
 		},
@@ -541,18 +548,67 @@ func NewContinueCommand() (*Command, error) {
 	return c, nil
 }
 
-func continueRework(c *Command) error {
-	if exists, err := c.repo.ReworkInProgress(); err != nil {
-		return err
-	} else if !exists {
-		return fmt.Errorf("no rework in progress")
+// NewSkipCommand returns a command that skips the next saved rework step.
+func NewSkipCommand() (*Command, error) {
+	c, err := NewCommand()
+	if err != nil {
+		return nil, err
 	}
+
+	state := newStateFile(c.repo, "queue")
+	c.setWriter(state)
+	c.setReader(state)
+
+	if exists, err := c.repo.ReworkInProgress(); err != nil {
+		return nil, err
+	} else if !exists {
+		return nil, fmt.Errorf("no rework in progress")
+	}
+
+	registerOperations(&c.executor, c.repo)
+
+	c.executor.Enqueue("Skip")
+
+	q, err := c.reader.ReadState()
+	if err != nil {
+		return nil, err
+	}
+	current, err := c.reader.ReadCurrentState()
+	if err != nil {
+		return nil, err
+	}
+	if len(current.Items) == 0 {
+		if _, err = q.Pop(); err != nil {
+			return nil, err
+		}
+	} else {
+		c.writer.ClearCurrentState()
+	}
+	c.executor.LoadQueue(q)
+
+	return c, nil
+}
+
+func continueRework(c *Command) error {
+	current, err := c.reader.ReadCurrentState()
+	if err != nil {
+		return err
+	}
+	c.executor.LoadQueue(current)
 	q, err := c.reader.ReadState()
 	if err != nil {
 		return err
 	}
 	c.executor.LoadQueue(q)
 	return nil
+}
+
+func skipReworkQueue(r *repo.Repo) error {
+	state := newStateFile(r, "reworkQueue")
+	if err := state.ClearQueueState(); err != nil {
+		return err
+	}
+	return state.ClearCurrentState()
 }
 
 func reworkPatchset(r *repo.Repo, patchset string) error {
