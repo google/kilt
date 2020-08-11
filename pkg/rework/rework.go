@@ -23,6 +23,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
 
 	log "github.com/golang/glog"
 	"github.com/google/kilt/pkg/patchset"
@@ -520,6 +521,26 @@ func newStateFile(r *repo.Repo, name string) *stateFile {
 		path: filepath.Join(r.KiltDirectory(), "rework"),
 		name: name,
 	}
+}
+
+// Status prints the status of the rework.
+func Status(r *repo.Repo) error {
+	state := newStateFile(r, "queue")
+	q, err := state.ReadState()
+	if err != nil {
+		return err
+	}
+	if len(q.Items) > 0 {
+		fmt.Println("Remaining work:")
+		for _, item := range q.Items {
+			fmt.Printf("\t%s %s\n", item.Operation, strings.Join(item.Args, " "))
+		}
+		fmt.Println(`Use kilt rework --continue to perform the next operation, or manually perform
+the operation and use kilt rework --skip to skip execution.`)
+	} else {
+		fmt.Println("All work complete. Use kilt rework --finish to validate and finish the rework.")
+	}
+	return nil
 }
 
 // NewContinueCommand returns a command that continues with saved rework steps.

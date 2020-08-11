@@ -183,6 +183,16 @@ func baseRef(branch string) string {
 	return path.Join(refPath, branch, "base")
 }
 
+// KiltBranch returns the name of the current kilt branch.
+func (r *Repo) KiltBranch() string {
+	return r.branch
+}
+
+// KiltBase returns the id of the kilt branch base commit.
+func (r *Repo) KiltBase() string {
+	return r.base
+}
+
 // WriteRefHead will write the current head to the specified kilt ref.
 func (r *Repo) WriteRefHead(name string) error {
 	ref, err := r.git.Head()
