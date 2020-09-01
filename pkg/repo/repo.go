@@ -27,7 +27,7 @@ import (
 
 	log "github.com/golang/glog"
 
-	"github.com/libgit2/git2go/v28"
+	"github.com/libgit2/git2go/v30"
 	"github.com/google/kilt/pkg/patchset"
 )
 

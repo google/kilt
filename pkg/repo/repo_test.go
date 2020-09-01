@@ -23,7 +23,7 @@ import (
 	"github.com/google/kilt/pkg/internal/testfiles"
 	"github.com/google/kilt/pkg/patchset"
 
-	"github.com/libgit2/git2go/v28"
+	"github.com/libgit2/git2go/v30"
 )
 
 func setupRepo(t *testing.T, name string) *git.Repository {
