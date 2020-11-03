@@ -253,3 +253,48 @@ func (d StructGraph) TransitiveDependencies(ps *patchset.Patchset) []*patchset.P
 	}
 	return patchsets
 }
+
+func (d *StructGraph) calculateReverseDependencies() {
+	revDeps := map[string][]*patchset.Patchset{}
+	for _, ps := range d.patchsets.Slice {
+		revDeps[ps.UUID().String()] = nil
+		var predicates []*patchsetPredicate
+		if dep := d.dependencies[ps.UUID().String()]; dep != nil {
+			predicates = dep.predicates
+		}
+		for _, p := range predicates {
+			revDep := revDeps[p.Patchset.UUID().String()]
+			revDeps[p.Patchset.UUID().String()] = append(revDep, ps)
+		}
+	}
+	d.reverseDependencies = revDeps
+}
+
+// TransitiveReverseDependencies will calculate a list of transitive reverse dependencies for the patchset.
+func (d *StructGraph) TransitiveReverseDependencies(ps *patchset.Patchset) []*patchset.Patchset {
+	if len(d.reverseDependencies) == 0 {
+		d.calculateReverseDependencies()
+	}
+	var patchsets []*patchset.Patchset
+	queue := []*patchset.Patchset{ps}
+	seen := map[string]bool{
+		ps.UUID().String(): true,
+	}
+	for len(queue) > 0 {
+		ps := queue[0]
+		for _, patchset := range d.reverseDependencies[ps.UUID().String()] {
+			if seen[patchset.UUID().String()] {
+				continue
+			}
+			seen[patchset.UUID().String()] = true
+			patchsets = append(patchsets, patchset)
+			queue = append(queue, patchset)
+		}
+		if len(queue) > 1 {
+			queue = queue[1 : len(queue)-1]
+		} else {
+			break
+		}
+	}
+	return patchsets
+}

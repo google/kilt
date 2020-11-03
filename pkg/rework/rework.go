@@ -388,10 +388,15 @@ func NewBeginCommand(selectors ...TargetSelector) (*Command, error) {
 	if err != nil {
 		return nil, err
 	}
+	revDeps, err := selectRevDepPatchsets(c.repo, selectors)
+	if err != nil {
+		return nil, err
+	}
 	first := true
 	var previous *patchset.Patchset
+	i := 0
 	for _, p := range patchsets {
-		if selectPatchset(selectors, p) {
+		if i < len(revDeps) && revDeps[i].SameAs(p) {
 			if first {
 				if previous != nil {
 					c.executor.Enqueue("Checkout", previous.Name())
@@ -401,6 +406,7 @@ func NewBeginCommand(selectors ...TargetSelector) (*Command, error) {
 				first = false
 			}
 			c.executor.Enqueue("Rework", p.Name())
+			i++
 		} else {
 			if !first {
 				c.executor.Enqueue("Apply", p.Name())
@@ -413,6 +419,41 @@ func NewBeginCommand(selectors ...TargetSelector) (*Command, error) {
 		return nil, err
 	}
 	return c, nil
+}
+
+func selectRevDepPatchsets(r *repo.Repo, selectors []TargetSelector) ([]*patchset.Patchset, error) {
+	patchsets, err := r.PatchsetCache()
+	if err != nil {
+		return nil, err
+	}
+	deps := dependency.NewStruct(patchsets)
+	b, err := ioutil.ReadFile("dependencies.json")
+	if err != nil {
+		log.Exitf(`Failed to read "dependencies.json": %v`, err)
+	}
+	err = json.Unmarshal(b, deps)
+	if err != nil {
+		log.Exitf(`Failed to load "dependencies.json": %v`, err)
+	}
+	seen := map[string]struct{}{}
+	var selected []*patchset.Patchset
+	for _, p := range patchsets.Slice {
+		for _, s := range selectors {
+			if _, ok := seen[p.Name()]; !ok && s.Select(p) {
+				seen[p.Name()] = struct{}{}
+				selected = append(selected, p)
+				ps := deps.TransitiveReverseDependencies(p)
+				for _, patchset := range ps {
+					seen[patchset.Name()] = struct{}{}
+				}
+				selected = append(selected, ps...)
+			}
+		}
+	}
+	sort.Slice(selected, func(i, j int) bool {
+		return patchsets.Index[selected[i].Name()] < patchsets.Index[selected[j].Name()]
+	})
+	return selected, err
 }
 
 func selectPatchsets(r *repo.Repo, selectors []TargetSelector) ([]*patchset.Patchset, error) {
