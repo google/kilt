@@ -416,7 +416,7 @@ func NewBeginCommand(selectors ...TargetSelector) (*Command, error) {
 }
 
 func selectPatchsets(r *repo.Repo, selectors []TargetSelector) ([]*patchset.Patchset, error) {
-	patchsets, err := r.Patchsets()
+	patchsets, err := r.PatchsetCache()
 	if err != nil {
 		return nil, err
 	}
@@ -431,7 +431,7 @@ func selectPatchsets(r *repo.Repo, selectors []TargetSelector) ([]*patchset.Patc
 	}
 	seen := map[string]struct{}{}
 	var selected []*patchset.Patchset
-	for _, p := range patchsets {
+	for _, p := range patchsets.Slice {
 		for _, s := range selectors {
 			if _, ok := seen[p.Name()]; !ok && s.Select(p) {
 				seen[p.Name()] = struct{}{}

@@ -23,6 +23,7 @@ import (
 	"strings"
 
 	"github.com/google/kilt/pkg/patchset"
+	"github.com/google/kilt/pkg/repo"
 )
 
 // Graph provides an interface for abstracting over a dependency graph implementation
@@ -66,12 +67,13 @@ func (d *dependency) Equal(d2 *dependency) bool {
 
 // StructGraph implements a simple in-memory dependency graph
 type StructGraph struct {
-	patchsets    []*patchset.Patchset
-	dependencies map[string]*dependency
+	patchsets           repo.PatchsetCache
+	reverseDependencies map[string][]*patchset.Patchset
+	dependencies        map[string]*dependency
 }
 
 // NewStruct creates a new StructGraph
-func NewStruct(patchsets []*patchset.Patchset) *StructGraph {
+func NewStruct(patchsets repo.PatchsetCache) *StructGraph {
 	return &StructGraph{
 		patchsets:    patchsets,
 		dependencies: make(map[string]*dependency),
@@ -92,6 +94,11 @@ func (d *StructGraph) Add(ps, dep *patchset.Patchset) error {
 		deps = &dependency{
 			patchset:   ps,
 			predicates: nil,
+		}
+	}
+	for _, p := range deps.predicates {
+		if p.Patchset.SameAs(dep) {
+			return fmt.Errorf("%q already exists as a dependency of %q", dep.Name(), ps.Name())
 		}
 	}
 	deps.predicates = append(deps.predicates, pdep)
@@ -130,7 +137,7 @@ func (d *StructGraph) flatten() map[string][]string {
 // load a structgraph from a map of patchset names to dependendency names.
 func (d *StructGraph) load(f map[string][]string) error {
 	ps := make(map[string]*patchset.Patchset)
-	for _, p := range d.patchsets {
+	for _, p := range d.patchsets.Slice {
 		ps[p.Name()] = p
 	}
 	for name, deps := range f {
@@ -169,15 +176,7 @@ func (d *StructGraph) UnmarshalJSON(b []byte) error {
 
 // checkOrder verifies that dep comes before ps in the patchset list.
 func (d *StructGraph) checkOrder(ps, dep *patchset.Patchset) bool {
-	for _, p := range d.patchsets {
-		if p.SameAs(dep) {
-			return true
-		}
-		if p.SameAs(ps) {
-			return false
-		}
-	}
-	return false
+	return d.patchsets.Index[ps.Name()] > d.patchsets.Index[dep.Name()]
 }
 
 func (d StructGraph) checkGraph() error {

@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/google/kilt/pkg/patchset"
+	"github.com/google/kilt/pkg/repo"
 
 	"github.com/google/go-cmp/cmp"
 )
@@ -30,7 +31,22 @@ func TestAdd(t *testing.T) {
 	c := patchset.New("c")
 	d := patchset.New("d")
 	e := patchset.New("e")
-	patchsets := []*patchset.Patchset{c, b, a}
+	ps := []*patchset.Patchset{c, b, a}
+	psMap := map[string]*patchset.Patchset{
+		"a": a,
+		"b": b,
+		"c": c,
+	}
+	psIndex := map[string]int{
+		"a": 2,
+		"b": 1,
+		"c": 0,
+	}
+	patchsets := repo.PatchsetCache{
+		Slice: ps,
+		Map:   psMap,
+		Index: psIndex,
+	}
 	tests := []struct {
 		desc     string
 		patchset *patchset.Patchset
@@ -170,7 +186,7 @@ func TestRemove(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		s := NewStruct(nil)
+		s := NewStruct(repo.PatchsetCache{})
 		s.dependencies = tt.startDeps
 		for _, dep := range tt.rmDeps {
 			s.Remove(tt.patchset, dep)
@@ -185,7 +201,22 @@ func TestValidate(t *testing.T) {
 	a := patchset.New("a")
 	b := patchset.New("b")
 	c := patchset.New("c")
-	patchsets := []*patchset.Patchset{c, b, a}
+	ps := []*patchset.Patchset{c, b, a}
+	psMap := map[string]*patchset.Patchset{
+		"a": a,
+		"b": b,
+		"c": c,
+	}
+	psIndex := map[string]int{
+		"a": 2,
+		"b": 1,
+		"c": 0,
+	}
+	patchsets := repo.PatchsetCache{
+		Slice: ps,
+		Map:   psMap,
+		Index: psIndex,
+	}
 	tests := []struct {
 		json  []byte
 		valid bool

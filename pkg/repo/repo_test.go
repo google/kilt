@@ -112,7 +112,7 @@ func TestCreateMetadataCommit(t *testing.T) {
 	}
 }
 
-func TestFindPatchset(t *testing.T) {
+func TestPatchsetMap(t *testing.T) {
 	r := setupRepo(t, "CreateMetadataCommit")
 
 	head, err := r.Head()
@@ -147,17 +147,17 @@ func TestFindPatchset(t *testing.T) {
 			t.Fatalf("createMetadataCommit(%q): %v", p, err)
 		}
 	}
+	ps, err := g.PatchsetMap()
+	if err != nil {
+		t.Fatalf("PatchsetMap(): %v", err)
+	}
 	for _, tt := range tests {
-		p, err := g.FindPatchset(tt.in)
-		if err != nil {
-			t.Errorf("FindPatchset(%q): Got error %v", tt.in, err)
-			continue
-		}
+		p := ps[tt.in]
 		switch {
 		case p == nil && tt.out:
-			t.Errorf("FindPatchset(%q): Got unexpected nil", tt.in)
+			t.Errorf("PatchsetMap[%q]: Got unexpected nil", tt.in)
 		case p != nil && !tt.out:
-			t.Errorf("FindPatchset(%q): Got patchset, expected nil", tt.in)
+			t.Errorf("PatchsetMap[%q]: Got patchset, expected nil", tt.in)
 		}
 	}
 }

@@ -75,7 +75,7 @@ func runDep(op func(d dependency.Graph, ps, dep *patchset.Patchset) error, cmd *
 	if err != nil {
 		log.Exitf("Init failed: %s", err)
 	}
-	patchsets, err := repo.Patchsets()
+	patchsets, err := repo.PatchsetCache()
 	if err != nil {
 		log.Exitf("Error loading patchsets: %v", err)
 	}
@@ -87,16 +87,16 @@ func runDep(op func(d dependency.Graph, ps, dep *patchset.Patchset) error, cmd *
 			log.Exitf("Failed to load %q: %v", dependencyFile, err)
 		}
 	}
-	ps, err := repo.FindPatchset(args[0])
-	if err != nil {
+	ps, ok := patchsets.Map[args[0]]
+	if !ok {
 		log.Exitf("Error finding patchset %q: %v", args[0], err)
 	}
 	if ps == nil {
 		log.Exitf("Patchset %q not found", args[0])
 	}
 	for _, d := range args[1:] {
-		dep, err := repo.FindPatchset(d)
-		if err != nil {
+		dep, ok := patchsets.Map[d]
+		if !ok {
 			log.Exitf("Error finding dependency %q: %v", args[0], err)
 		}
 		if dep == nil {

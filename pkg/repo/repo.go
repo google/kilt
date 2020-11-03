@@ -33,13 +33,11 @@ import (
 
 // Repo wraps git repo state for repository manipulations
 type Repo struct {
-	git           *git.Repository
-	base          string
-	branch        string
-	head          string
-	patchsets     []*patchset.Patchset
-	patchsetIndex map[string]int
-	patchsetMap   map[string]*patchset.Patchset
+	git       *git.Repository
+	base      string
+	branch    string
+	head      string
+	patchsets PatchsetCache
 }
 
 const (
@@ -54,6 +52,13 @@ const (
 var (
 	fieldsRegexp = regexp.MustCompile("^([-[:alnum:]]+):[[:space:]]?(.*)$")
 )
+
+// PatchsetCache provides a convenient way to look up cached patchsets.
+type PatchsetCache struct {
+	Slice []*patchset.Patchset
+	Index map[string]int
+	Map   map[string]*patchset.Patchset
+}
 
 func newWithGitRepo(git *git.Repository, base, branch, head string) *Repo {
 	return &Repo{
@@ -496,48 +501,44 @@ func (r *Repo) UpdateMetadataForCommit(id string) error {
 	return r.createMetadataCommit(newPatchset)
 }
 
-// FindPatchset iterates through the git tree and attempts to find the named patchset.
-func (r *Repo) FindPatchset(name string) (*patchset.Patchset, error) {
-	patchsets, err := r.Patchsets()
-	if err != nil {
-		return nil, err
-	}
-	for _, p := range patchsets {
-		if p.Name() == name {
-			return p, nil
-		}
-	}
-	return nil, nil
-}
-
 // Patchsets reads and returns an ordered list of patchsets
 func (r *Repo) Patchsets() ([]*patchset.Patchset, error) {
-	if len(r.patchsets) == 0 {
+	if len(r.patchsets.Slice) == 0 {
 		if err := r.walkPatchsets(); err != nil {
 			return nil, err
 		}
 	}
-	return r.patchsets, nil
+	return r.patchsets.Slice, nil
 }
 
 // PatchsetMap reads and returns a map of patchset names to patchsets
 func (r *Repo) PatchsetMap() (map[string]*patchset.Patchset, error) {
-	if len(r.patchsetMap) == 0 {
+	if len(r.patchsets.Map) == 0 {
 		if err := r.walkPatchsets(); err != nil {
 			return nil, err
 		}
 	}
-	return r.patchsetMap, nil
+	return r.patchsets.Map, nil
 }
 
 // PatchsetIndex reads and returns a map of patchset names to an index in the patchset list
 func (r *Repo) PatchsetIndex() (map[string]int, error) {
-	if len(r.patchsetIndex) == 0 {
+	if len(r.patchsets.Index) == 0 {
 		if err := r.walkPatchsets(); err != nil {
 			return nil, err
 		}
 	}
-	return r.patchsetIndex, nil
+	return r.patchsets.Index, nil
+}
+
+// PatchsetCache reads and returns a map of patchset names to an index in the patchset list
+func (r *Repo) PatchsetCache() (PatchsetCache, error) {
+	if len(r.patchsets.Slice) == 0 {
+		if err := r.walkPatchsets(); err != nil {
+			return PatchsetCache{}, err
+		}
+	}
+	return r.patchsets, nil
 }
 
 func (r *Repo) walkPatchsets() error {
@@ -638,9 +639,11 @@ func (r *Repo) walkPatchsets() error {
 			}
 		}
 	}
-	r.patchsets = patchsets
-	r.patchsetMap = patchsetMap
-	r.patchsetIndex = patchsetIndex
+	r.patchsets = PatchsetCache{
+		Slice: patchsets,
+		Map:   patchsetMap,
+		Index: patchsetIndex,
+	}
 	return nil
 }
 
