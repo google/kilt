@@ -252,6 +252,66 @@ func (t PatchsetTarget) Select(patchset *patchset.Patchset) bool {
 	return t.Name == patchset.Name()
 }
 
+func registerBuildOperations(e *queue.Executor, r *repo.Repo) {
+	var operations = []queue.Operation{
+		{
+			Name: "UpdateHead",
+			Execute: func(_ []string) error {
+				if err := r.WriteRefHead("rework/head"); err != nil {
+					return err
+				}
+				return r.SetHead("rework/head")
+			},
+		},
+		{
+			Name: "Finish",
+			Execute: func(branch []string) error {
+				if len(branch) == 0 {
+					return errors.New("no branch specified")
+				}
+				return finishBuild(r, branch[0])
+			},
+		},
+		{
+			Name: "Abort",
+			Execute: func(_ []string) error {
+				return abortRework(r)
+			},
+		},
+		{
+			Name: "Begin",
+			Execute: func(_ []string) error {
+				return startNewRework(r)
+			},
+		},
+		{
+			Name: "Checkout",
+			Execute: func(revspec []string) error {
+				if len(revspec) == 0 {
+					return errors.New("no rev specified")
+				}
+				fmt.Printf("Checking out %s\n", revspec[0])
+				return r.CheckoutRev(revspec[0])
+			},
+			Resumable: true,
+		},
+		{
+			Name: "Apply",
+			Execute: func(patchset []string) error {
+				if len(patchset) == 0 {
+					return errors.New("no patchset specified")
+				}
+				fmt.Printf("Applying patchset %s\n", patchset[0])
+				return applyPatchset(r, patchset[0])
+			},
+			Resumable: true,
+		},
+	}
+	for _, op := range operations {
+		e.Register(op)
+	}
+}
+
 func registerOperations(e *queue.Executor, r *repo.Repo) {
 	var operations = []queue.Operation{
 		{
@@ -456,7 +516,45 @@ func selectRevDepPatchsets(r *repo.Repo, selectors []TargetSelector) ([]*patchse
 	return selected, err
 }
 
-func selectPatchsets(r *repo.Repo, selectors []TargetSelector) ([]*patchset.Patchset, error) {
+// NewBeginBuildCommand returns a command that begins a new rework.
+func NewBeginBuildCommand(base string, selectors ...TargetSelector) (*Command, error) {
+	c, err := NewCommand()
+	if err != nil {
+		return nil, err
+	}
+
+	s := newStateFile(c.repo, "queue")
+
+	c.setWriter(s)
+	c.setReader(s)
+
+	registerBuildOperations(&c.executor, c.repo)
+
+	if err = c.executor.Enqueue("Begin"); err != nil {
+		return nil, err
+	}
+	selected, err := selectDependentPatchsets(c.repo, selectors)
+	if err != nil {
+		return nil, err
+	}
+	if err = c.executor.Enqueue("Checkout", base); err != nil {
+		return nil, err
+	}
+	for _, p := range selected {
+		if err = c.executor.Enqueue("Apply", p.Name()); err != nil {
+			return nil, err
+		}
+	}
+	if err = c.executor.Enqueue("UpdateHead"); err != nil {
+		return nil, err
+	}
+	if err = c.executor.Enqueue("Finish", base); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+func selectDependentPatchsets(r *repo.Repo, selectors []TargetSelector) ([]*patchset.Patchset, error) {
 	patchsets, err := r.PatchsetCache()
 	if err != nil {
 		return nil, err
@@ -485,14 +583,25 @@ func selectPatchsets(r *repo.Repo, selectors []TargetSelector) ([]*patchset.Patc
 			}
 		}
 	}
-	ix, err := r.PatchsetIndex()
-	if err != nil {
-		return nil, err
-	}
 	sort.Slice(selected, func(i, j int) bool {
-		return ix[selected[i].Name()] < ix[selected[j].Name()]
+		return patchsets.Index[selected[i].Name()] < patchsets.Index[selected[j].Name()]
 	})
 	return selected, err
+}
+
+func startNewBuild(r *repo.Repo, branch string) error {
+	if exists, err := r.ReworkInProgress(); err != nil {
+		return err
+	} else if exists {
+		return fmt.Errorf("rework already in progress")
+	}
+	if err := r.WriteRefHead("rework/head"); err != nil {
+		return err
+	}
+	if err := r.WriteSymbolicRefBranch("rework/branch", branch); err != nil {
+		return err
+	}
+	return r.SetHead("rework/head")
 }
 
 func startNewRework(r *repo.Repo) error {
@@ -526,6 +635,22 @@ func NewFinishCommand(force bool) (*Command, error) {
 		return nil, err
 	}
 	return c, nil
+}
+
+func finishBuild(r *repo.Repo, branch string) error {
+	if exists, err := r.ReworkInProgress(); err != nil {
+		return err
+	} else if !exists {
+		return fmt.Errorf("no rework in progress")
+	}
+	if err := r.SetBranchToHead(branch); err != nil {
+		return err
+	}
+	if err := r.CheckoutBranch(branch); err != nil {
+		return err
+	}
+	cleanupReworkState(r)
+	return nil
 }
 
 func finishRework(r *repo.Repo) error {

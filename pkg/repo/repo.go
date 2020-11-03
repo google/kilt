@@ -216,6 +216,25 @@ func (r *Repo) WriteRefHead(name string) error {
 	return nil
 }
 
+// WriteSymbolicRefBranch will write the given symbolic branch to the specified kilt ref.
+func (r *Repo) WriteSymbolicRefBranch(name, branchName string) error {
+	if detached, err := r.git.IsHeadDetached(); err != nil {
+		return fmt.Errorf("failed while checking detached head: %w", err)
+	} else if detached {
+		return errors.New("must not be on a detached head")
+	}
+	branch, err := r.git.LookupBranch(branchName, git.BranchLocal)
+	if err != nil {
+		return fmt.Errorf("failed to lookup branch: %w", err)
+	}
+	ref := branch.Reference
+	refName := path.Join(refPath, name)
+	if _, err := r.git.References.CreateSymbolic(refName, ref.Name(), false, "Updating kilt rework reference"); err != nil {
+		return fmt.Errorf("failed to create ref %q: %w", refName, err)
+	}
+	return nil
+}
+
 // WriteSymbolicRefHead will write the current symbolic head to the specified kilt ref.
 func (r *Repo) WriteSymbolicRefHead(name string) error {
 	if detached, err := r.git.IsHeadDetached(); err != nil {
@@ -268,12 +287,27 @@ func (r *Repo) SetIndirectBranchToHead(name string) error {
 	return err
 }
 
+// SetBranchToHead will set the given branch to point to HEAD.
+func (r *Repo) SetBranchToHead(name string) error {
+	head, err := r.git.Head()
+	if err != nil {
+		return err
+	}
+	branch, err := r.git.LookupBranch(name, git.BranchLocal)
+	if err != nil {
+		return err
+	}
+	_, err = branch.SetTarget(head.Target(), "Finishing rework")
+	return err
+}
+
 // KiltDirectory returns a full path to the kilt subdirectory of the .git directory.
 func (r *Repo) KiltDirectory() string {
 	return filepath.Join(r.git.Path(), "kilt")
 }
 
-func (r *Repo) checkoutRev(rev string) error {
+// CheckoutRev will checkout the given rev.
+func (r *Repo) CheckoutRev(rev string) error {
 	obj, err := r.git.RevparseSingle(rev)
 	if err != nil {
 		return err
@@ -297,7 +331,7 @@ func (r *Repo) checkoutRev(rev string) error {
 
 // CheckoutBase will checkout the kilt base rev.
 func (r *Repo) CheckoutBase() error {
-	return r.checkoutRev(r.base)
+	return r.CheckoutRev(r.base)
 }
 
 // CheckoutPatchset will checkout the latest patch in the given patchset.
@@ -317,7 +351,7 @@ func (r *Repo) CheckoutPatchset(patchset string) error {
 	} else {
 		id = patches[len(patches)-1]
 	}
-	return r.checkoutRev(id)
+	return r.CheckoutRev(id)
 }
 
 // ErrUserActionRequired is returned when an action couldn't be completed and requires user intervention.
@@ -394,6 +428,30 @@ func (r *Repo) DetachHead() error {
 		return err
 	}
 	return nil
+}
+
+// CheckoutBranch will checkout the given branch.
+func (r *Repo) CheckoutBranch(name string) error {
+	branch, err := r.git.LookupBranch(name, git.BranchLocal)
+	if err != nil {
+		return fmt.Errorf("failed to lookup branch: %w", err)
+	}
+	ref := branch.Reference
+	treeObj, err := ref.Peel(git.ObjectTree)
+	if err != nil {
+		return err
+	}
+	tree, err := treeObj.AsTree()
+	if err != nil {
+		return err
+	}
+	if err := r.git.CheckoutTree(tree, &git.CheckoutOpts{Strategy: git.CheckoutSafe}); err != nil {
+		return err
+	}
+	if err := r.git.SetHead(ref.Name()); err != nil {
+		return err
+	}
+	return r.git.StateCleanup()
 }
 
 // CheckoutIndirectBranch will resolve the ref and checkout the branch that the resolved target points to.
