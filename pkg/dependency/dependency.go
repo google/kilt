@@ -223,3 +223,34 @@ func (d StructGraph) findCycles(dep *dependency, permanent, temporary map[string
 func (d StructGraph) Validate() error {
 	return d.checkGraph()
 }
+
+// TransitiveDependencies will calculate a list of transitive dependencies for the patchset.
+func (d StructGraph) TransitiveDependencies(ps *patchset.Patchset) []*patchset.Patchset {
+	var patchsets []*patchset.Patchset
+	queue := []*patchset.Patchset{ps}
+	seen := map[string]struct{}{
+		ps.UUID().String(): struct{}{},
+	}
+	for len(queue) > 0 {
+		ps := queue[0]
+		var predicates []*patchsetPredicate
+		if dep := d.dependencies[ps.UUID().String()]; dep != nil {
+			predicates = dep.predicates
+		}
+		for _, p := range predicates {
+			patchset := p.Patchset
+			if _, ok := seen[patchset.UUID().String()]; ok {
+				continue
+			}
+			seen[patchset.UUID().String()] = struct{}{}
+			patchsets = append(patchsets, patchset)
+			queue = append(queue, patchset)
+		}
+		if len(queue) > 1 {
+			queue = queue[1 : len(queue)-1]
+		} else {
+			break
+		}
+	}
+	return patchsets
+}

@@ -18,14 +18,17 @@ limitations under the License.
 package rework
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	log "github.com/golang/glog"
+	"github.com/google/kilt/pkg/dependency"
 	"github.com/google/kilt/pkg/patchset"
 	"github.com/google/kilt/pkg/queue"
 	"github.com/google/kilt/pkg/repo"
@@ -410,6 +413,45 @@ func NewBeginCommand(selectors ...TargetSelector) (*Command, error) {
 		return nil, err
 	}
 	return c, nil
+}
+
+func selectPatchsets(r *repo.Repo, selectors []TargetSelector) ([]*patchset.Patchset, error) {
+	patchsets, err := r.Patchsets()
+	if err != nil {
+		return nil, err
+	}
+	deps := dependency.NewStruct(patchsets)
+	b, err := ioutil.ReadFile("dependencies.json")
+	if err != nil {
+		log.Exitf(`Failed to read "dependencies.json": %v`, err)
+	}
+	err = json.Unmarshal(b, deps)
+	if err != nil {
+		log.Exitf(`Failed to load "dependencies.json": %v`, err)
+	}
+	seen := map[string]struct{}{}
+	var selected []*patchset.Patchset
+	for _, p := range patchsets {
+		for _, s := range selectors {
+			if _, ok := seen[p.Name()]; !ok && s.Select(p) {
+				seen[p.Name()] = struct{}{}
+				selected = append(selected, p)
+				ps := deps.TransitiveDependencies(p)
+				for _, patchset := range ps {
+					seen[patchset.Name()] = struct{}{}
+				}
+				selected = append(selected, ps...)
+			}
+		}
+	}
+	ix, err := r.PatchsetIndex()
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(selected, func(i, j int) bool {
+		return ix[selected[i].Name()] < ix[selected[j].Name()]
+	})
+	return selected, err
 }
 
 func startNewRework(r *repo.Repo) error {

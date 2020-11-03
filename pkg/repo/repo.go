@@ -33,12 +33,13 @@ import (
 
 // Repo wraps git repo state for repository manipulations
 type Repo struct {
-	git         *git.Repository
-	base        string
-	branch      string
-	head        string
-	patchsets   []*patchset.Patchset
-	patchsetMap map[string]*patchset.Patchset
+	git           *git.Repository
+	base          string
+	branch        string
+	head          string
+	patchsets     []*patchset.Patchset
+	patchsetIndex map[string]int
+	patchsetMap   map[string]*patchset.Patchset
 }
 
 const (
@@ -529,6 +530,16 @@ func (r *Repo) PatchsetMap() (map[string]*patchset.Patchset, error) {
 	return r.patchsetMap, nil
 }
 
+// PatchsetIndex reads and returns a map of patchset names to an index in the patchset list
+func (r *Repo) PatchsetIndex() (map[string]int, error) {
+	if len(r.patchsetIndex) == 0 {
+		if err := r.walkPatchsets(); err != nil {
+			return nil, err
+		}
+	}
+	return r.patchsetIndex, nil
+}
+
 func (r *Repo) walkPatchsets() error {
 	branch, err := r.git.LookupBranch(r.head, git.BranchLocal)
 	var head *git.Reference
@@ -570,6 +581,7 @@ func (r *Repo) walkPatchsets() error {
 	var oid git.Oid
 	var patchsets []*patchset.Patchset
 	patchsetMap := map[string]*patchset.Patchset{}
+	patchsetIndex := map[string]int{}
 	var currentPatchset *patchset.Patchset
 	for {
 		if err := revWalk.Next(&oid); err != nil {
@@ -602,6 +614,7 @@ func (r *Repo) walkPatchsets() error {
 			patchset.AddMetadataCommit(c.Id().String())
 			patchsets = append(patchsets, patchset)
 			patchsetMap[patchset.Name()] = patchset
+			patchsetIndex[patchset.Name()] = len(patchsets) - 1
 			currentPatchset = patchset
 		} else {
 			fields := parseFields(c.Message())
@@ -627,6 +640,7 @@ func (r *Repo) walkPatchsets() error {
 	}
 	r.patchsets = patchsets
 	r.patchsetMap = patchsetMap
+	r.patchsetIndex = patchsetIndex
 	return nil
 }
 
